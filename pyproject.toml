@@ -30,10 +30,15 @@ packages = ["src/stac_fastapi"]
 [dependency-groups]
 dev = [
     "mypy>=1.17.0",
+    "pytest>=8.4.1",
     "ruff>=0.12.3",
     "uvicorn>=0.35.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-recording>=0.13.0",
+    "respx>=0.21.0",
+    "httpx>=0.28.1",
+    "pre-commit>=4.2.0",
 ]
-
 
 [tool.mypy]
 ignore_missing_imports = true
@@ -55,4 +60,26 @@ select = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["stac_fastapi.collection_discovery"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings"
+]
+markers = [
+    "unit: Unit tests with mocked dependencies",
+    "integration: Integration tests with real APIs",
+    "vcr: Tests that use pytest-recording for HTTP interactions"
+]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning"
+]
 

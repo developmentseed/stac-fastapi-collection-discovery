@@ -1,0 +1,125 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate, br
+      connection:
+      - keep-alive
+      host:
+      - stac.maap-project.org
+      user-agent:
+      - python-httpx/0.28.1
+    method: GET
+    uri: https://stac.maap-project.org
+  response:
+    body:
+      string: !!binary |
+        G8QLAGQzZ72+Hh1QHBd+Puwi/3rklZXUG5BraYH+//uV65B8ookoS42yOee9N3/unyiMrrUuWsME
+        XKIF59UhzrsDgZWFi/3OM+hjJvCwGTT03EIFKYKHIYRs/5L8O9GKBrQhJxvpDirQpD2Bh+PF4szc
+        7C3m8mqxaRZn++ZjpLtPUEH8zP1dWROP4OHqd6iit85uuPzFRslS142Fbwj1z8eVahbvHAjONefX
+        XNpPUIFowH/fU/fnCDxM60k9gQqQx4bLIFcMfgkr1eydu7+/rznT2CapR1InmdDhup+5aT1xyGPj
+        roMktLjuZ1CB6BeL635mb4RHmFBRetAfcoshJ4s8DDxa03L5/a1rYNe3VB718Lpzpp06UCEupKHU
+        lth5uvtxcpD5ZMYy51++UU3qlYoyTMczxTsXcqpFA0omrLm07q6F3WkL1lOH3PeEmnh8/xEzwpv2
+        pknURxkxB77nTVOImiK0GqwVQqsoh3ABEDBzSWmQBfEeRZ28SPCTgvZNUTSAY5iujgtCxBlfAQSX
+        mGLAUkBeEYVBPCMaZXv39j8V9GnsBPzyGQr14EGob6BiMYziuH0qHl2h/3XUOzLeDjTGyVmoAe98
+        X9GANek4HLxWxqgXZpVc3BjUBvUYNCAlml4MiXPpNCuJIfLwUWDZggDiUmrrYUQK8PbLq8WmO93d
+        NMKEr8E3kxjimj7QqBTN30X1TWKEyl02AwBFICFDfjqGwtioJf6CU2JyZU3Mcnf76k+Y+Lb+DQPp
+        iiN42N2+wlKxs9PLac7Z6eWUDhseF6lxhXrHLXIpOw/N4brP/lABnFNwRUNYys8lmW56OAx6sf0A
+        5S4h2UiCEfa+G2PNIdUQ5pATaunXAlH9fV4c8iIfdJppXJztG8VRpkCF6AQFQ04II3ly1EoP6lY6
+        9Na5/aFUhi3hZyFoX//UwV70oDRK7lr88s8r
+    headers:
+      Apigw-Requestid:
+      - N0MSbj6XvHcEJTQ=
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '711'
+      Content-Type:
+      - application/json
+      Date:
+      - Wed, 16 Jul 2025 18:48:47 GMT
+      content-encoding:
+      - br
+      vary:
+      - Accept-Encoding
+    status:
+      code: 200
+      message: OK
+- request:
+    body: ''
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate, br
+      connection:
+      - keep-alive
+      host:
+      - stac.eoapi.dev
+      user-agent:
+      - python-httpx/0.28.1
+    method: GET
+    uri: https://stac.eoapi.dev
+  response:
+    body:
+      string: !!binary |
+        H4sIAAAAAAAA/61WTW/bMAz9K4J7XG3145ZhhyIbip3arbkVwaDKdKJNtlxRcVcU/e+j5HwoQZoo
+        yU6BZb7HR4X041vmXlvIBtlQOKHNJDvPVEmPYESr8hI6BChzdELSG6echvDy5v774rAElFa1TpnG
+        08zQmZr5d3kl6KdVTLStVlL4CFYZy3r4156bGHzwrw4s9hSXxUVxQcfSNBRd48hkg8ds6lw74Pzl
+        5aUwLTQThUUDjmMLkstnfcUJxj2EPwlUMvdnRJIO80/5byQJB6Mc/HV7UGYi/YVKU9emySMCVHWr
+        IX+egX1N46hAuJkFzC8jGcbC8egJmITCdxAYgdcXB8KvV/DlWaW0A3sCUYxHIqDAwreXBxbGTngX
+        uiu3srgkiNYgfVvmCMLK6dHAs0qBLvEU/EnCzyoLELfhERRxBx4BR2MTk19x5aA+tPIoJSZFLwdi
+        V1ik5LDo5H98DZR4x2uYtIvdnIrDEekVbQJTq9rEhcrG55lWzR+kb/xbZkGTASDoyrtNb0yRe/D5
+        V2rhQ6OpQlYaOauhCXdkoaLjhQ6voQhGVpCR8ez9fJHBGuOSMvzsA5OJS3LRJOLhqpuZ6ITS4klD
+        cEfni1q58e7U8VCsVMydUzQSksQ8jG6G/O52yCIgk1ogArLgT/6CoWRPr708BNv1Q7tH3UrHSt1y
+        3LYIIyf6tEUc6zHs8fbbaLw37TJBDW5q/DZDsP8k4P7u4SgFHhdJ+MDfSqg4BfhJCaYWJst3Bm5X
+        i3IKtdgU/GOJOqW11nJ/eJO2UxJyvwNuV9g1ZWGEClUSc5D6eb7rfbkOe95C9h2F0GLI5qQsXiz3
+        iaXfbbJMpMq7I5+6Wu9KOf+WiNSkRSB8H8+XWEoBDYZpHDyO3/8BOu1Rtl0LAAA=
+    headers:
+      Apigw-Requestid:
+      - N0MSejkrvHcEMmw=
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '674'
+      Content-Type:
+      - application/json
+      Date:
+      - Wed, 16 Jul 2025 18:48:47 GMT
+      content-encoding:
+      - gzip
+      vary:
+      - Accept-Encoding
+    status:
+      code: 200
+      message: OK
+- request:
+    body: ''
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate, br
+      connection:
+      - keep-alive
+      host:
+      - testserver
+      user-agent:
+      - testclient
+    method: GET
+    uri: http://testserver/_mgmt/health
+  response:
+    body:
+      string: '{"status":"UP","lifespan":{"status":"UP"},"child_apis":{"https://stac.maap-project.org":true,"https://stac.eoapi.dev":true}}'
+    headers:
+      content-length:
+      - '124'
+      content-type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

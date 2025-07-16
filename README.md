@@ -31,10 +31,14 @@ Install dependencies:
 uv sync
 ```
 
-Run type checking and linting:
+Install pre-commit hooks:
 
 ```bash
-uv run mypy src/
-uv run ruff check src/
-uv run ruff format src/
+uv run pre-commit install
+```
+
+Run tests:
+
+```bash
+uv run pytest
 ```

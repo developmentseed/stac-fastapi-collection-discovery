@@ -14,14 +14,12 @@ from stac_fastapi.collection_discovery.core import (
 from stac_fastapi.collection_discovery.settings import Settings
 from stac_fastapi.extensions.core import (
     CollectionSearchExtension,
-    CollectionSearchFilterExtension,
     FieldsExtension,
     FreeTextExtension,
     SortExtension,
     TokenPaginationExtension,
 )
 from stac_fastapi.extensions.core.fields import FieldsConformanceClasses
-from stac_fastapi.extensions.core.filter import FilterConformanceClasses
 from stac_fastapi.extensions.core.free_text import FreeTextConformanceClasses
 from stac_fastapi.extensions.core.sort import SortConformanceClasses
 
@@ -34,9 +32,6 @@ settings = Settings()
 cs_extensions = [
     SortExtension(conformance_classes=[SortConformanceClasses.COLLECTIONS]),
     FieldsExtension(conformance_classes=[FieldsConformanceClasses.COLLECTIONS]),
-    CollectionSearchFilterExtension(
-        conformance_classes=[FilterConformanceClasses.COLLECTIONS]
-    ),
     FreeTextExtension(
         conformance_classes=[FreeTextConformanceClasses.COLLECTIONS],
     ),

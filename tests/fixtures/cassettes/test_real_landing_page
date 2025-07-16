@@ -1,0 +1,42 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate, br
+      connection:
+      - keep-alive
+      host:
+      - testserver
+      user-agent:
+      - testclient
+    method: GET
+    uri: http://testserver/
+  response:
+    body:
+      string: !!binary |
+        G3UGAGR/6tu08pTNBX7ZSK74rk+pW9cD2SZnIw4ppU1/P8Ho3wiiy0b/hn/3loGdFJ044hlOZKpz
+        hxpjIp+BMjZWLxj8xBvoSyHw8B0VF56ggxTBgyiGfkRRLAk60KQLgYfzi+G76Sc68yPJ3OvGL2Y4
+        +QsdxKn2NxVNnMHDYEJ2nOXwaz1FQ6UPJ39NZF7cEIylYgpOKaNSNMnJLOEVXDAqsNV6eVkI4aDY
+        q3yVv3Me0/RQKX5/11/lxsyqRbxzohjsilj6MRWZLdcp0yJiLMlGeoSu7fTbUHh/APCwtRu7gQ4C
+        55HrKhcM/hJm1eKde3p6slwoT0lsJnVSKDieApbUB15Xzv3Obe3GBc6jk7SWhfr/D1RfoINZtXgc
+        nJ2C+u1dpMCVEPSMst9cD4p3DkuyohikULBcJ/fY6Lr7GuzW2c8xhTvtYEy0RMFA1aJUJ6gS9UrP
+        +sQrXF/w8F1KfFQJrjtYUv4n4C/foNICHoSWETr3NPHd1Hvh7JPgJi7hkcPDSllEg0ojeOgiZ5RE
+        heojVQcfXQXQK7NSzjLbjAs9oiLAH3wxLPSFGbkanZMYJrKuZhMtAw3DOmn+mAPJ0v38Yvjujn9/
+        N4XNxO6Wk5g/XShFs8dNSRKjSxuEA8QANI4PA1lDH0mCluCPOVrG5MxILKm9F86HNMT+tKcgHAUj
+        jgvl4eSvAXYxlGutsaJiSVI58zlspWd1s65Ljdi+5ismM3HMuR/XrAqjZ6UsnqHyl9cf
+    headers:
+      content-encoding:
+      - br
+      content-length:
+      - '564'
+      content-type:
+      - application/json
+      vary:
+      - Accept-Encoding
+    status:
+      code: 200
+      message: OK
+version: 1
