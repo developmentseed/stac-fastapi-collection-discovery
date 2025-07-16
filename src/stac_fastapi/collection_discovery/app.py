@@ -1,6 +1,11 @@
+import logging
+
+from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI
+from starlette.middleware import Middleware
 
 from stac_fastapi.api.app import StacApi
+from stac_fastapi.api.middleware import CORSMiddleware, ProxyHeaderMiddleware
 from stac_fastapi.collection_discovery.core import (
     BASE_CONFORMANCE_CLASSES,
     CollectionSearchClient,
@@ -20,8 +25,12 @@ from stac_fastapi.extensions.core.filter import FilterConformanceClasses
 from stac_fastapi.extensions.core.free_text import FreeTextConformanceClasses
 from stac_fastapi.extensions.core.sort import SortConformanceClasses
 
-settings = Settings()
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("stac_fastapi.collection_discovery")
+logger.setLevel(logging.INFO)
 
+settings = Settings()
 cs_extensions = [
     SortExtension(conformance_classes=[SortConformanceClasses.COLLECTIONS]),
     FieldsExtension(conformance_classes=[FieldsConformanceClasses.COLLECTIONS]),
@@ -61,6 +70,17 @@ api = StacCollectionSearchApi(
     settings=settings,
     collections_get_request_model=collections_get_request_model,
     health_check=health_check,
+    middlewares=[
+        Middleware(BrotliMiddleware),
+        Middleware(ProxyHeaderMiddleware),
+        Middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=settings.cors_methods,
+            allow_headers=["*"],
+        ),
+    ],
 )
 
 app = api.app

@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import unquote, urlencode, urljoin
 
@@ -28,6 +29,8 @@ BASE_CONFORMANCE_CLASSES = [
     OAFConformanceClasses.CORE,
     OAFConformanceClasses.OPEN_API,
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class CollectionSearchClient(AsyncBaseCoreClient):
@@ -59,10 +62,12 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         q: Optional[List[str]] = None,
         **kwargs,
     ) -> Collections:
+        _bbox = ",".join(str(coord) for coord in bbox) if bbox else None
+
         params = {
             key: value
             for key, value in {
-                "bbox": bbox,
+                "bbox": _bbox,
                 "datetime": datetime,
                 "limit": limit,
                 "fields": fields,
@@ -84,6 +89,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         if token:
             search_state = self._decode_token(token)
+            logger.info("Continuing collection search with token pagination")
         else:
             search_state = {
                 "current": {
@@ -92,6 +98,10 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                 },
                 "is_first_page": True,
             }
+            logger.info(
+                "Starting new collection search across "
+                f"{len(request.app.state.settings.child_api_urls)} APIs"
+            )
 
         new_state: Dict[str, Any] = {
             "current": {},
@@ -111,6 +121,10 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         async with AsyncClient() as client:
             current_urls = search_state.get("current", search_state.get("next", {}))
 
+            # Log the API requests being made
+            for api, url in current_urls.items():
+                logger.info(f"Making request to {api}: {url}")
+
             tasks = [
                 fetch_api_data(client, api, url) for api, url in current_urls.items()
             ]
@@ -119,6 +133,8 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
             for api, json_response in api_responses:
                 url = current_urls[api]
+                collections_count = len(json_response["collections"])
+                logger.info(f"Received {collections_count} collections from {api}")
 
                 # Provide link to actual API search
                 links.append({"rel": "canonical", "href": url})
@@ -141,6 +157,11 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
                 if prev_link:
                     new_state["previous"][api] = prev_link["href"]
+
+            logger.info(
+                "Collection search completed. "
+                f"Total collections returned: {len(collections)}"
+            )
 
         if not search_state.get("is_first_page", False) and new_state["previous"]:
             prev_state = {
@@ -246,6 +267,9 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             }
         )
 
+        # SCRUB ITEM SEARCH links
+        # TODO: open issue in stac-fastapi to only add these if the conformance classes
+        # are there?
         landing_page["links"] = list(
             filter(
                 lambda link: not link["title"].startswith("STAC search"),

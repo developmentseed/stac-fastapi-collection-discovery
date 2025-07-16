@@ -18,6 +18,9 @@ class Settings(ApiSettings):
         description="comma separated list of STAC API URLs",
     )
 
+    cors_origins: str = "*"
+    cors_methods: str = "GET,POST,OPTIONS"
+
     @field_validator("child_api_urls")
     def parse_child_api_urls(cls, v):
         return v.split(",") if v else []
