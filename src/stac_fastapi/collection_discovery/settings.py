@@ -8,7 +8,7 @@ class Settings(ApiSettings):
     stac_fastapi_title: str = "STAC Collection Discovery API"
     stac_fastapi_description: str = (
         "A collection-search-only STAC API that combines "
-        "search results from multiple APIs."
+        "paginated search results from multiple STAC APIs."
     )
     stac_fastapi_version: str = __version__
     stac_fastapi_landing_id: str = "stac-fastapi"

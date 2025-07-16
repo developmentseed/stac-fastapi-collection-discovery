@@ -1,17 +1,26 @@
+import asyncio
 import base64
 import json
-from typing import Any, Dict, List, Optional, Union
-from urllib.parse import unquote, urlencode
+from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import unquote, urlencode, urljoin
 
 import attr
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from httpx import AsyncClient
-from stac_pydantic.shared import BBox
+from stac_pydantic.links import Relations
+from stac_pydantic.shared import BBox, MimeTypes
 
 from stac_fastapi.types.conformance import OAFConformanceClasses, STACConformanceClasses
 from stac_fastapi.types.core import AsyncBaseCoreClient
-from stac_fastapi.types.stac import Collection, Collections, Item, ItemCollection
+from stac_fastapi.types.requests import get_base_url
+from stac_fastapi.types.stac import (
+    Collection,
+    Collections,
+    Item,
+    ItemCollection,
+    LandingPage,
+)
 
 BASE_CONFORMANCE_CLASSES = [
     STACConformanceClasses.CORE,
@@ -91,15 +100,29 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             "is_first_page": False,
         }
 
+        async def fetch_api_data(
+            client, api: str, url: str
+        ) -> Tuple[str, Dict[str, Any]]:
+            """Fetch data from a single API endpoint."""
+            api_request = await client.get(url)
+            json_response = api_request.json()
+            return api, json_response
+
         async with AsyncClient() as client:
             current_urls = search_state.get("current", search_state.get("next", {}))
 
-            for api, url in current_urls.items():
-                # provide link to actual API search
+            tasks = [
+                fetch_api_data(client, api, url) for api, url in current_urls.items()
+            ]
+
+            api_responses = await asyncio.gather(*tasks)
+
+            for api, json_response in api_responses:
+                url = current_urls[api]
+
+                # Provide link to actual API search
                 links.append({"rel": "canonical", "href": url})
 
-                api_request = await client.get(url)
-                json_response = api_request.json()
                 collections.extend(json_response["collections"])
 
                 next_link = next(
@@ -107,7 +130,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                     None,
                 )
                 prev_link = next(
-                    filter(lambda x: x["rel"] == "prev", json_response["links"]),
+                    filter(lambda x: x["rel"] == "previous", json_response["links"]),
                     None,
                 )
 
@@ -127,7 +150,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             prev_token = self._encode_token(prev_state)
             links.append(
                 {
-                    "rel": "prev",
+                    "rel": "previous",
                     "href": f"{request.base_url}collections?token={prev_token}",
                 }
             )
@@ -150,6 +173,87 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             links=links,
             numberReturned=len(collections),
         )
+
+    async def landing_page(self, **kwargs) -> LandingPage:
+        """Landing page.
+
+        Modified version of the default with the STAC search links removed
+
+        Called with `GET /`.
+
+        Returns:
+            API landing page, serving as an entry point to the API.
+        """
+        request: Request = kwargs["request"]
+        base_url = get_base_url(request)
+
+        landing_page = self._landing_page(
+            base_url=base_url,
+            conformance_classes=self.conformance_classes(),
+            extension_schemas=[],
+        )
+
+        # Add Queryables link
+        if self.extension_is_enabled("FilterExtension") or self.extension_is_enabled(
+            "SearchFilterExtension"
+        ):
+            landing_page["links"].append(
+                {
+                    "rel": Relations.queryables.value,
+                    "type": MimeTypes.jsonschema.value,
+                    "title": "Queryables available for this Catalog",
+                    "href": urljoin(base_url, "queryables"),
+                    "method": "GET",
+                }
+            )
+
+        # Add Aggregation links
+        if self.extension_is_enabled("AggregationExtension"):
+            landing_page["links"].extend(
+                [
+                    {
+                        "rel": "aggregate",
+                        "type": "application/json",
+                        "title": "Aggregate",
+                        "href": urljoin(base_url, "aggregate"),
+                    },
+                    {
+                        "rel": "aggregations",
+                        "type": "application/json",
+                        "title": "Aggregations",
+                        "href": urljoin(base_url, "aggregations"),
+                    },
+                ]
+            )
+
+        # Add OpenAPI URL
+        landing_page["links"].append(
+            {
+                "rel": Relations.service_desc.value,
+                "type": MimeTypes.openapi.value,
+                "title": "OpenAPI service description",
+                "href": str(request.url_for("openapi")),
+            }
+        )
+
+        # Add human readable service-doc
+        landing_page["links"].append(
+            {
+                "rel": Relations.service_doc.value,
+                "type": MimeTypes.html.value,
+                "title": "OpenAPI service documentation",
+                "href": str(request.url_for("swagger_ui_html")),
+            }
+        )
+
+        landing_page["links"] = list(
+            filter(
+                lambda link: not link["title"].startswith("STAC search"),
+                landing_page["links"],
+            )
+        )
+
+        return LandingPage(**landing_page)
 
     async def post_search(self, *args, **kwargs) -> ItemCollection:
         raise NotImplementedError
