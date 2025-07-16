@@ -1,0 +1,26 @@
+services:
+  app:
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+    command: ["uv", "run", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "stac_fastapi.collection_discovery.app:app", "--bind", "0.0.0.0:8000", "--workers", "1"]
+    environment:
+      - CHILD_API_URLS=https://stac.maap-project.org,https://stac.eoapi.dev,https://cmr.earthdata.nasa.gov/stac/ALL
+    develop:
+      watch:
+        - action: sync+restart
+          path: src/stac_fastapi
+          target: /app/stac_fastapi
+
+        - action: rebuild
+          path: ./pyproject.toml
+
+  stac-browser:
+    image: ghcr.io/radiantearth/stac-browser:latest
+    ports:
+      - 8080:8080
+    depends_on:
+      - app
+    environment:
+      SB_catalogUrl: "http://0.0.0.0:8000"
