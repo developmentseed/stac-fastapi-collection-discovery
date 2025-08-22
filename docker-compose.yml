@@ -20,7 +20,7 @@ services:
     image: ghcr.io/radiantearth/stac-browser:latest
     ports:
       - 8080:8080
-    depends_on:
-      - app
     environment:
-      SB_catalogUrl: "http://0.0.0.0:8000"
+      SB_catalogUrl: "http://localhost:8000"
+      SB_cardViewMode: "list"
+      SB_showKeywordsInCatalogCards: true

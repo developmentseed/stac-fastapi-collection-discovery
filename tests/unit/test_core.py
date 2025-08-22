@@ -183,6 +183,143 @@ class TestCollectionSearchClient:
             await collection_search_client.all_collections(request=mock_request)
 
     @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_with_apis_parameter(
+        self, collection_search_client, mock_request, sample_collections_response
+    ):
+        """Test collection search with custom APIs parameter."""
+        # Mock responses for specific APIs
+        api3_response = copy.deepcopy(sample_collections_response)
+        api3_response["collections"][0]["id"] = "api3-collection-1"
+
+        api4_response = copy.deepcopy(sample_collections_response)
+        api4_response["collections"][0]["id"] = "api4-collection-1"
+
+        respx.get("https://api3.example.com/collections").mock(
+            return_value=Response(200, json=api3_response)
+        )
+        respx.get("https://api4.example.com/collections").mock(
+            return_value=Response(200, json=api4_response)
+        )
+
+        # Test with custom APIs list
+        custom_apis = ["https://api3.example.com", "https://api4.example.com"]
+        result = await collection_search_client.all_collections(
+            request=mock_request, apis=custom_apis
+        )
+
+        # Should only have collections from the specified APIs
+        assert len(result["collections"]) == 4  # 2 collections per API
+        collection_ids = [c["id"] for c in result["collections"]]
+        assert "api3-collection-1" in collection_ids
+        assert "api4-collection-1" in collection_ids
+
+        # Should have canonical links to both specified APIs
+        canonical_links = [link for link in result["links"] if link["rel"] == "canonical"]
+        assert len(canonical_links) == 2
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_with_single_api(
+        self, collection_search_client, mock_request, sample_collections_response
+    ):
+        """Test collection search with single API in apis parameter."""
+        respx.get("https://single-api.example.com/collections").mock(
+            return_value=Response(200, json=sample_collections_response)
+        )
+
+        # Test with single API
+        result = await collection_search_client.all_collections(
+            request=mock_request, apis=["https://single-api.example.com"]
+        )
+
+        # Should have collections from only one API
+        assert len(result["collections"]) == 2
+        assert result["numberReturned"] == 2
+
+        # Should have only one canonical link
+        canonical_links = [link for link in result["links"] if link["rel"] == "canonical"]
+        assert len(canonical_links) == 1
+
+    @pytest.mark.asyncio
+    async def test_all_collections_empty_apis_parameter(self, collection_search_client):
+        """Test collection search with empty apis parameter raises ValueError."""
+        from unittest.mock import Mock
+
+        # Create a mock request with empty child_api_urls in settings
+        mock_request = Mock()
+        mock_request.app.state.settings.child_api_urls = []
+
+        with pytest.raises(ValueError, match="no apis specified!"):
+            await collection_search_client.all_collections(request=mock_request, apis=[])
+
+    @pytest.mark.asyncio
+    async def test_all_collections_no_apis_fallback_to_settings(
+        self, collection_search_client
+    ):
+        """Test that when no apis parameter provided, it falls back to settings."""
+        from unittest.mock import Mock
+
+        # Create a mock request with empty child_api_urls in settings
+        mock_request = Mock()
+        mock_request.app.state.settings.child_api_urls = []
+
+        with pytest.raises(ValueError, match="no apis specified!"):
+            await collection_search_client.all_collections(request=mock_request)
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_apis_parameter_with_pagination(
+        self, collection_search_client, mock_request, sample_collections_response
+    ):
+        """Test collection search with apis parameter and pagination."""
+        # Mock response with next link for custom API
+        api_response = sample_collections_response.copy()
+        api_response["links"] = [
+            {"rel": "self", "href": "https://custom-api.example.com/collections"},
+            {
+                "rel": "next",
+                "href": "https://custom-api.example.com/collections?token=next_page",
+            },
+        ]
+
+        respx.get("https://custom-api.example.com/collections").mock(
+            return_value=Response(200, json=api_response)
+        )
+
+        result = await collection_search_client.all_collections(
+            request=mock_request, apis=["https://custom-api.example.com"]
+        )
+
+        # Should have next link
+        next_link = next(
+            (link for link in result["links"] if link["rel"] == "next"), None
+        )
+        assert next_link is not None
+        assert "token=" in next_link["href"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_apis_parameter_with_search_params(
+        self, collection_search_client, mock_request, sample_collections_response
+    ):
+        """Test collection search with apis parameter and search parameters."""
+        respx.get(
+            "https://search-api.example.com/collections?bbox=-180,-90,180,90&datetime=2020-01-01T00:00:00Z/2021-01-01T00:00:00Z&limit=5"
+        ).mock(return_value=Response(200, json=sample_collections_response))
+
+        result = await collection_search_client.all_collections(
+            request=mock_request,
+            apis=["https://search-api.example.com"],
+            bbox=[-180, -90, 180, 90],
+            datetime="2020-01-01T00:00:00Z/2021-01-01T00:00:00Z",
+            limit=5,
+        )
+
+        assert len(result["collections"]) == 2
+        assert result["numberReturned"] == 2
+
+    @pytest.mark.asyncio
     async def test_not_implemented_methods(self, collection_search_client):
         """Test that certain methods raise NotImplementedError."""
         with pytest.raises(NotImplementedError):

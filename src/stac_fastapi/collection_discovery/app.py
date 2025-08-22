@@ -1,7 +1,9 @@
 import logging
+from typing import Annotated, List, Optional
 
+import attr
 from brotli_asgi import BrotliMiddleware
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from starlette.middleware import Middleware
 
 from stac_fastapi.api.app import StacApi
@@ -22,6 +24,8 @@ from stac_fastapi.extensions.core import (
 from stac_fastapi.extensions.core.fields import FieldsConformanceClasses
 from stac_fastapi.extensions.core.free_text import FreeTextConformanceClasses
 from stac_fastapi.extensions.core.sort import SortConformanceClasses
+from stac_fastapi.types.extension import ApiExtension
+from stac_fastapi.types.search import APIRequest
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +33,35 @@ logger = logging.getLogger("stac_fastapi.collection_discovery")
 logger.setLevel(logging.INFO)
 
 settings = Settings()
+
+
+@attr.s
+class FederatedApisGetRequest(APIRequest):
+    apis: Annotated[
+        Optional[List[str]],
+        Query(
+            description="List of STAC APIs to include in the search"  # noqa: E501
+        ),
+    ] = attr.ib(default=None)
+
+
+@attr.s
+class FederatedApisExtension(ApiExtension):
+    GET: FederatedApisGetRequest = attr.ib(default=FederatedApisGetRequest)  # type: ignore
+    POST = attr.ib(init=False)
+
+    def register(self, app: FastAPI) -> None:
+        """Register the extension with a FastAPI application.
+
+        Args:
+            app (fastapi.FastAPI): target FastAPI application.
+
+        Returns:
+            None
+        """
+        pass
+
+
 cs_extensions = [
     SortExtension(conformance_classes=[SortConformanceClasses.COLLECTIONS]),
     FieldsExtension(conformance_classes=[FieldsConformanceClasses.COLLECTIONS]),
@@ -36,6 +69,7 @@ cs_extensions = [
         conformance_classes=[FreeTextConformanceClasses.COLLECTIONS],
     ),
     TokenPaginationExtension(),
+    FederatedApisExtension(),
 ]
 
 collection_search_extension = CollectionSearchExtension.from_extensions(cs_extensions)

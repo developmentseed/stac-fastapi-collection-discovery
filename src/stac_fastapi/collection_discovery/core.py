@@ -2,13 +2,13 @@ import asyncio
 import base64
 import json
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Annotated, Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote, urlencode, urljoin
 
 import attr
-from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi import Query, Request
 from httpx import AsyncClient
+from pydantic import BaseModel
 from stac_pydantic.links import Relations
 from stac_pydantic.shared import BBox, MimeTypes
 
@@ -30,6 +30,30 @@ BASE_CONFORMANCE_CLASSES = [
     OAFConformanceClasses.OPEN_API,
 ]
 
+
+class ChildApiStatus(BaseModel):
+    """Status information for a child API."""
+
+    healthy: bool
+    conformance_valid: bool
+    has_collection_search: Optional[bool] = None
+    has_free_text: Optional[bool] = None
+
+
+class LifespanStatus(BaseModel):
+    """Lifespan status information."""
+
+    status: str
+
+
+class HealthCheckResponse(BaseModel):
+    """Health check response model."""
+
+    status: str
+    lifespan: LifespanStatus
+    child_apis: Dict[str, ChildApiStatus]
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,23 +72,21 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         json_str = base64.urlsafe_b64decode(token.encode()).decode()
         return json.loads(json_str)
 
-    async def all_collections(
+    def _build_search_params(
         self,
-        request: Request,
-        token: Optional[str] = None,
-        bbox: Optional[BBox] = None,
-        datetime: Optional[str] = None,
-        limit: Optional[int] = None,
-        fields: Optional[List[str]] = None,
-        sortby: Optional[str] = None,
-        filter_expr: Optional[str] = None,
-        filter_lang: Optional[str] = None,
-        q: Optional[List[str]] = None,
-        **kwargs,
-    ) -> Collections:
+        bbox: Optional[BBox],
+        datetime: Optional[str],
+        limit: Optional[int],
+        fields: Optional[List[str]],
+        sortby: Optional[str],
+        filter_expr: Optional[str],
+        filter_lang: Optional[str],
+        q: Optional[List[str]],
+    ) -> Dict[str, Any]:
+        """Build search parameters dictionary."""
         _bbox = ",".join(str(coord) for coord in bbox) if bbox else None
 
-        params = {
+        return {
             key: value
             for key, value in {
                 "bbox": _bbox,
@@ -78,90 +100,33 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             }.items()
             if value is not None
         }
-        collections = []
+
+    def _get_search_state(
+        self, token: Optional[str], apis: List[str], param_str: str
+    ) -> Dict[str, Any]:
+        """Get or create search state based on token."""
+        if token:
+            search_state = self._decode_token(token)
+            logger.info("Continuing collection search with token pagination")
+        else:
+            search_state = {
+                "current": {api: f"{api}/collections?{param_str}" for api in apis},
+                "is_first_page": True,
+            }
+            logger.info(f"Starting new collection search across {len(apis)} APIs")
+
+        return search_state
+
+    def _build_pagination_links(
+        self, request: Request, search_state: Dict[str, Any], new_state: Dict[str, Any]
+    ) -> List[Dict[str, str]]:
+        """Build pagination links for the response."""
         links = [
             {
                 "rel": "self",
                 "href": str(request.url),
             }
         ]
-        param_str = unquote(urlencode(params, True))
-
-        if token:
-            search_state = self._decode_token(token)
-            logger.info("Continuing collection search with token pagination")
-        else:
-            search_state = {
-                "current": {
-                    api: f"{api}/collections?{param_str}"
-                    for api in request.app.state.settings.child_api_urls
-                },
-                "is_first_page": True,
-            }
-            logger.info(
-                "Starting new collection search across "
-                f"{len(request.app.state.settings.child_api_urls)} APIs"
-            )
-
-        new_state: Dict[str, Any] = {
-            "current": {},
-            "previous": {},
-            "next": {},
-            "is_first_page": False,
-        }
-
-        async def fetch_api_data(
-            client, api: str, url: str
-        ) -> Tuple[str, Dict[str, Any]]:
-            """Fetch data from a single API endpoint."""
-            api_request = await client.get(url)
-            json_response = api_request.json()
-            return api, json_response
-
-        async with AsyncClient() as client:
-            current_urls = search_state.get("current", search_state.get("next", {}))
-
-            # Log the API requests being made
-            for api, url in current_urls.items():
-                logger.info(f"Making request to {api}: {url}")
-
-            tasks = [
-                fetch_api_data(client, api, url) for api, url in current_urls.items()
-            ]
-
-            api_responses = await asyncio.gather(*tasks)
-
-            for api, json_response in api_responses:
-                url = current_urls[api]
-                collections_count = len(json_response["collections"])
-                logger.info(f"Received {collections_count} collections from {api}")
-
-                # Provide link to actual API search
-                links.append({"rel": "canonical", "href": url})
-
-                collections.extend(json_response["collections"])
-
-                next_link = next(
-                    filter(lambda x: x["rel"] == "next", json_response["links"]),
-                    None,
-                )
-                prev_link = next(
-                    filter(lambda x: x["rel"] == "previous", json_response["links"]),
-                    None,
-                )
-
-                new_state["current"][api] = url
-
-                if next_link:
-                    new_state["next"][api] = next_link["href"]
-
-                if prev_link:
-                    new_state["previous"][api] = prev_link["href"]
-
-            logger.info(
-                "Collection search completed. "
-                f"Total collections returned: {len(collections)}"
-            )
 
         if not search_state.get("is_first_page", False) and new_state["previous"]:
             prev_state = {
@@ -188,6 +153,97 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                     "href": f"{request.base_url}collections?token={next_token}",
                 }
             )
+
+        return links
+
+    async def all_collections(
+        self,
+        request: Request,
+        apis: Optional[List[str]] = None,
+        token: Optional[str] = None,
+        bbox: Optional[BBox] = None,
+        datetime: Optional[str] = None,
+        limit: Optional[int] = None,
+        fields: Optional[List[str]] = None,
+        sortby: Optional[str] = None,
+        filter_expr: Optional[str] = None,
+        filter_lang: Optional[str] = None,
+        q: Optional[List[str]] = None,
+        **kwargs,
+    ) -> Collections:
+        if not apis:
+            apis = request.app.state.settings.child_api_urls
+            if not apis:
+                raise ValueError("no apis specified!")
+
+        params = self._build_search_params(
+            bbox, datetime, limit, fields, sortby, filter_expr, filter_lang, q
+        )
+        param_str = unquote(urlencode(params, True))
+        search_state = self._get_search_state(token, apis, param_str)
+
+        collections = []
+        canonical_links = []
+
+        new_state: Dict[str, Any] = {
+            "current": {},
+            "previous": {},
+            "next": {},
+            "is_first_page": False,
+        }
+
+        async def fetch_api_data(
+            client, api: str, url: str
+        ) -> Tuple[str, Dict[str, Any]]:
+            """Fetch data from a single API endpoint."""
+            api_request = await client.get(url)
+            json_response = api_request.json()
+            return api, json_response
+
+        async with AsyncClient() as client:
+            current_urls = search_state.get("current", search_state.get("next", {}))
+
+            for api, url in current_urls.items():
+                logger.info(f"Making request to {api}: {url}")
+
+            tasks = [
+                fetch_api_data(client, api, url) for api, url in current_urls.items()
+            ]
+
+            api_responses = await asyncio.gather(*tasks)
+
+            for api, json_response in api_responses:
+                url = current_urls[api]
+                collections_count = len(json_response["collections"])
+                logger.info(f"Received {collections_count} collections from {api}")
+
+                canonical_links.append({"rel": "canonical", "href": url})
+                collections.extend(json_response["collections"])
+
+                next_link = next(
+                    filter(lambda x: x["rel"] == "next", json_response["links"]),
+                    None,
+                )
+                prev_link = next(
+                    filter(lambda x: x["rel"] == "previous", json_response["links"]),
+                    None,
+                )
+
+                new_state["current"][api] = url
+
+                if next_link:
+                    new_state["next"][api] = next_link["href"]
+
+                if prev_link:
+                    new_state["previous"][api] = prev_link["href"]
+
+            logger.info(
+                "Collection search completed. "
+                f"Total collections returned: {len(collections)}"
+            )
+
+        links = self._build_pagination_links(request, search_state, new_state)
+        links.extend(canonical_links)
 
         return Collections(
             collections=collections,
@@ -303,19 +359,60 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         raise NotImplementedError
 
 
-async def health_check(request: Request) -> Union[Dict, JSONResponse]:
+async def health_check(
+    request: Request,
+    apis: Annotated[
+        Optional[List[str]],
+        Query(description="List of STAC APIs to check health status for"),
+    ] = None,
+) -> HealthCheckResponse:
     """PgSTAC HealthCheck."""
-    resp: Dict[str, Any] = {
-        "status": "UP",
-        "lifespan": {
-            "status": "UP",
-        },
-        "child_apis": {},
-    }
+    if not apis:
+        apis = request.app.state.settings.child_api_urls
+        if not apis:
+            raise ValueError("no apis specified!")
+
+    child_apis: Dict[str, ChildApiStatus] = {}
+    semaphore = asyncio.Semaphore(10)
+
+    async def check_api_health(client, api: str) -> Tuple[str, ChildApiStatus]:
+        async with semaphore:
+            try:
+                api_response = await client.get(api)
+                if api_response.status_code != 200:
+                    return api, ChildApiStatus(healthy=False, conformance_valid=False)
+
+                landing_page = api_response.json()
+                conforms_to = landing_page.get("conformsTo", [])
+
+                has_collection_search = any(
+                    cls.endswith("collection-search") for cls in conforms_to
+                )
+                has_free_text = any(
+                    cls.endswith("collection-search#free-text") for cls in conforms_to
+                )
+
+                conformance_valid = has_collection_search and has_free_text
+
+                result = ChildApiStatus(
+                    healthy=True,
+                    conformance_valid=conformance_valid,
+                    has_collection_search=has_collection_search,
+                    has_free_text=has_free_text,
+                )
+
+                return api, result
+
+            except Exception:
+                return api, ChildApiStatus(healthy=False, conformance_valid=False)
 
     async with AsyncClient() as client:
-        for api in request.app.state.settings.child_api_urls:
-            api_response = await client.get(api)
-            resp["child_apis"][api] = api_response.status_code == 200
+        tasks = [check_api_health(client, api) for api in apis]
+        results = await asyncio.gather(*tasks)
 
-    return resp
+        for api, result in results:
+            child_apis[api] = result
+
+    return HealthCheckResponse(
+        status="UP", lifespan=LifespanStatus(status="UP"), child_apis=child_apis
+    )
