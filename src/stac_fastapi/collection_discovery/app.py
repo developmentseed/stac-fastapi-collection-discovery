@@ -191,6 +191,41 @@ class StacCollectionSearchApi(StacApi):
         self.app.include_router(mgmt_router, tags=["Liveliness/Readiness"])
 
 
+DESCRIPTION = (
+    "A collection-search-only STAC API that combines paginated search results from "
+    "multiple upstream STAC APIs into a single unified interface.\n\n"
+    "## API Configuration\n"
+    "The application can be pre-configured with a default set of upstream STAC APIs via "
+    "the `UPSTREAM_API_URLS` environment variable (comma-separated list). "
+    "Users can override this configuration for individual requests by providing their "
+    "own list of APIs using the `apis` query parameter, "
+    "either as multiple parameters (`?apis=url1&apis=url2`) or as a comma-separated "
+    "string (`?apis=url1,url2`).\n\n"
+    "## Conformance Classes\n"
+    "The API's conformance classes are dynamically calculated based on the intersection "
+    "of capabilities across all queried upstream APIs. "
+    "The conformance classes returned for any given request represent only the "
+    "collection-search features that are commonly supported by ALL upstream APIs in the "
+    "request, limited to the extensions enabled in this application: filter, sort, "
+    "free-text search, and fields selection.\n\n"
+    "## Pagination Behavior\n"
+    "The `limit` parameter is passed to each upstream API individually, meaning the "
+    "total number of collections returned will be `limit × number_of_APIs`. "
+    "For example, with `limit=10` and 3 upstream APIs, you may receive up to 30 "
+    "collections per page. "
+    "Pagination state is maintained using base64-encoded tokens that track the current "
+    "position across all upstream APIs.\n\n"
+    "## Example Usage\n"
+    "- Search all pre-configured APIs: `GET /collections`\n"
+    "- Search with bounding box: `GET /collections?bbox=-180,-90,180,90&limit=5`\n"
+    "- Search specific APIs: `GET /collections?apis=https://stac.eoapi.dev,https://stac.maap-project.org`\n"
+    "- Free-text search: `GET /collections?q=landsat,sentinel`\n"
+    "- Filtered search: `GET /collections?filter=mission='sentinel-2'&"
+    "filter-lang=cql2-text`\n"
+    "- Paginated search: `GET /collections?token=eyJ...`"
+)
+
+
 api = StacCollectionSearchApi(
     app=FastAPI(
         openapi_url=settings.openapi_url,
@@ -199,8 +234,9 @@ api = StacCollectionSearchApi(
         root_path=settings.root_path,
         title=settings.stac_fastapi_title,
         version=settings.stac_fastapi_version,
-        description=settings.stac_fastapi_description,
+        description=DESCRIPTION,
     ),
+    description=DESCRIPTION,
     extensions=cs_extensions,
     client=CollectionSearchClient(base_conformance_classes=BASE_CONFORMANCE_CLASSES),
     settings=settings,
