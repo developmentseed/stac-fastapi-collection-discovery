@@ -113,7 +113,7 @@ interactions:
     uri: http://testserver/_mgmt/health
   response:
     body:
-      string: '{"status":"UP","lifespan":{"status":"UP"},"child_apis":{"https://stac.maap-project.org":true,"https://stac.eoapi.dev":true}}'
+      string: '{"status":"UP","lifespan":{"status":"UP"},"upstream_apis":{"https://stac.maap-project.org":true,"https://stac.eoapi.dev":true}}'
     headers:
       content-length:
       - '124'

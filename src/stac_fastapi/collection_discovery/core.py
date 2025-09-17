@@ -31,13 +31,10 @@ BASE_CONFORMANCE_CLASSES = [
 ]
 
 
-class ChildApiStatus(BaseModel):
-    """Status information for a child API."""
+class UpstreamApiStatus(BaseModel):
+    """Status information for an upstream API."""
 
     healthy: bool
-    conformance_valid: bool
-    has_collection_search: Optional[bool] = None
-    has_free_text: Optional[bool] = None
 
 
 class LifespanStatus(BaseModel):
@@ -51,7 +48,7 @@ class HealthCheckResponse(BaseModel):
 
     status: str
     lifespan: LifespanStatus
-    child_apis: Dict[str, ChildApiStatus]
+    upstream_apis: Dict[str, UpstreamApiStatus]
 
 
 logger = logging.getLogger(__name__)
@@ -172,7 +169,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         **kwargs,
     ) -> Collections:
         if not apis:
-            apis = request.app.state.settings.child_api_urls
+            apis = request.app.state.settings.upstream_api_urls
             if not apis:
                 raise ValueError("no apis specified!")
 
@@ -251,7 +248,9 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             numberReturned=len(collections),
         )
 
-    async def landing_page(self, **kwargs) -> LandingPage:
+    async def landing_page(
+        self, request: Request, apis: Optional[List[str]] = None, **kwargs
+    ) -> LandingPage:
         """Landing page.
 
         Modified version of the default with the STAC search links removed
@@ -261,14 +260,41 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         Returns:
             API landing page, serving as an entry point to the API.
         """
-        request: Request = kwargs["request"]
         base_url = get_base_url(request)
 
         landing_page = self._landing_page(
             base_url=base_url,
-            conformance_classes=self.conformance_classes(),
+            conformance_classes=await self.conformance_classes(
+                request=request, apis=apis
+            ),
             extension_schemas=[],
         )
+
+        # Add upstream APIs as child links
+        if not apis:
+            apis = request.app.state.settings.upstream_api_urls
+            if not apis:
+                raise ValueError("no apis specified!")
+
+        # include the configured APIs in the description
+        landing_page["description"] = (
+            landing_page["description"] + f"\n\nConfigured APIs:\n{'\n'.join(apis)}"
+        )
+
+        landing_page["links"].extend(
+            [
+                {
+                    "rel": Relations.child.value,
+                    "type": MimeTypes.json.value,
+                    "title": f"Upstream STAC API: {api}",
+                    "href": api,
+                    "method": "GET",
+                }
+                for api in apis
+            ]
+        )
+
+        # Everything below is copy pasta from original method
 
         # Add Queryables link
         if self.extension_is_enabled("FilterExtension") or self.extension_is_enabled(
@@ -335,6 +361,100 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         return LandingPage(**landing_page)
 
+    async def _fetch_api_conformance(
+        self, client: AsyncClient, api: str, semaphore: asyncio.Semaphore
+    ) -> Tuple[str, set]:
+        """Fetch conformance classes from a single API."""
+        async with semaphore:
+            try:
+                api_response = await client.get(f"{api}/conformance")
+                if api_response.status_code == 200:
+                    conformance_data = api_response.json()
+                    return api, set(conformance_data.get("conformsTo", []))
+                else:
+                    logger.warning(
+                        f"Failed to fetch conformance from {api}: "
+                        f"{api_response.status_code}"
+                    )
+                    return api, set()
+            except Exception as e:
+                logger.warning(f"Error fetching conformance from {api}: {e}")
+                return api, set()
+
+    async def conformance_classes(
+        self, request: Request, apis: Optional[List[str]] = None
+    ) -> List[str]:
+        """Generate conformance classes by finding intersection of local and upstream API
+        conformance classes."""
+        local_conformance_classes = self.base_conformance_classes.copy()
+
+        for extension in self.extensions:
+            extension_classes = getattr(extension, "conformance_classes", [])
+            local_conformance_classes.extend(extension_classes)
+
+        local_conformance_set = set(local_conformance_classes)
+
+        if not apis:
+            apis = request.app.state.settings.upstream_api_urls
+            if not apis:
+                raise ValueError("no apis specified!")
+
+        # Fetch conformance classes from all upstream APIs
+        semaphore = asyncio.Semaphore(10)
+
+        async with AsyncClient() as client:
+            tasks = [self._fetch_api_conformance(client, api, semaphore) for api in apis]
+            results = await asyncio.gather(*tasks)
+
+        # Only check intersection for collection-search related conformance classes
+        # Keep all other local conformance classes as-is
+        collection_search_classes = {
+            cls for cls in local_conformance_set if "collection-search" in cls
+        }
+        other_classes = local_conformance_set - collection_search_classes
+
+        def get_collection_search_suffix(cls: str) -> str:
+            if "collection-search" in cls:
+                parts = cls.split("collection-search")
+                return parts[-1]  # Get the suffix after collection-search
+            return ""
+
+        local_suffixes = {
+            get_collection_search_suffix(cls) for cls in collection_search_classes
+        }
+
+        # Find intersection based on collection-search suffixes
+        result_suffixes = local_suffixes
+        for _, upstream_set in results:
+            if upstream_set:
+                upstream_suffixes = {
+                    get_collection_search_suffix(cls)
+                    for cls in upstream_set
+                    if "collection-search" in cls
+                }
+                result_suffixes = result_suffixes.intersection(upstream_suffixes)
+
+        # Convert back to full conformance classes using local URLs
+        result_collection_search = {
+            cls
+            for cls in collection_search_classes
+            if get_collection_search_suffix(cls) in result_suffixes
+        }
+
+        # Combine filtered collection-search classes with other local classes
+        result_set = result_collection_search.union(other_classes)
+
+        return sorted(result_set)
+
+    async def conformance(
+        self, request: Request, apis: Optional[List[str]], **kwargs
+    ) -> Dict[str, List[str]]:
+        """Conformance classes endpoint.
+
+        Override to provide request parameter to conformance_classes method.
+        """
+        return {"conformsTo": await self.conformance_classes(request=request, apis=apis)}
+
     async def post_search(self, *args, **kwargs) -> ItemCollection:
         raise NotImplementedError
 
@@ -368,51 +488,30 @@ async def health_check(
 ) -> HealthCheckResponse:
     """PgSTAC HealthCheck."""
     if not apis:
-        apis = request.app.state.settings.child_api_urls
+        apis = request.app.state.settings.upstream_api_urls
         if not apis:
             raise ValueError("no apis specified!")
 
-    child_apis: Dict[str, ChildApiStatus] = {}
+    upstream_apis: Dict[str, UpstreamApiStatus] = {}
     semaphore = asyncio.Semaphore(10)
 
-    async def check_api_health(client, api: str) -> Tuple[str, ChildApiStatus]:
+    async def check_api_health(client, api: str) -> Tuple[str, UpstreamApiStatus]:
         async with semaphore:
             try:
+                # Check landing page health
                 api_response = await client.get(api)
-                if api_response.status_code != 200:
-                    return api, ChildApiStatus(healthy=False, conformance_valid=False)
-
-                landing_page = api_response.json()
-                conforms_to = landing_page.get("conformsTo", [])
-
-                has_collection_search = any(
-                    cls.endswith("collection-search") for cls in conforms_to
-                )
-                has_free_text = any(
-                    cls.endswith("collection-search#free-text") for cls in conforms_to
-                )
-
-                conformance_valid = has_collection_search and has_free_text
-
-                result = ChildApiStatus(
-                    healthy=True,
-                    conformance_valid=conformance_valid,
-                    has_collection_search=has_collection_search,
-                    has_free_text=has_free_text,
-                )
-
-                return api, result
+                return api, UpstreamApiStatus(healthy=api_response.status_code == 200)
 
             except Exception:
-                return api, ChildApiStatus(healthy=False, conformance_valid=False)
+                return api, UpstreamApiStatus(healthy=False)
 
     async with AsyncClient() as client:
         tasks = [check_api_health(client, api) for api in apis]
         results = await asyncio.gather(*tasks)
 
         for api, result in results:
-            child_apis[api] = result
+            upstream_apis[api] = result
 
     return HealthCheckResponse(
-        status="UP", lifespan=LifespanStatus(status="UP"), child_apis=child_apis
+        status="UP", lifespan=LifespanStatus(status="UP"), upstream_apis=upstream_apis
     )

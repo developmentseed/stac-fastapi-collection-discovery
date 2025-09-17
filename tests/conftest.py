@@ -25,7 +25,7 @@ def test_app():
     """Create a test app instance with mock settings."""
 
     test_settings = Settings(
-        child_api_urls="https://api1.example.com,https://api2.example.com"
+        upstream_api_urls="https://api1.example.com,https://api2.example.com"
     )
 
     api = StacCollectionSearchApi(
@@ -83,7 +83,7 @@ def mock_request():
     mock_request = Mock()
     mock_request.url = "http://localhost:8080/collections"
     mock_request.base_url = "http://localhost:8080/"
-    mock_request.app.state.settings.child_api_urls = [
+    mock_request.app.state.settings.upstream_api_urls = [
         "https://api1.example.com",
         "https://api2.example.com",
     ]

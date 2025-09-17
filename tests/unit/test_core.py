@@ -246,9 +246,9 @@ class TestCollectionSearchClient:
         """Test collection search with empty apis parameter raises ValueError."""
         from unittest.mock import Mock
 
-        # Create a mock request with empty child_api_urls in settings
+        # Create a mock request with empty upstream_api_urls in settings
         mock_request = Mock()
-        mock_request.app.state.settings.child_api_urls = []
+        mock_request.app.state.settings.upstream_api_urls = []
 
         with pytest.raises(ValueError, match="no apis specified!"):
             await collection_search_client.all_collections(request=mock_request, apis=[])
@@ -260,9 +260,9 @@ class TestCollectionSearchClient:
         """Test that when no apis parameter provided, it falls back to settings."""
         from unittest.mock import Mock
 
-        # Create a mock request with empty child_api_urls in settings
+        # Create a mock request with empty upstream_api_urls in settings
         mock_request = Mock()
-        mock_request.app.state.settings.child_api_urls = []
+        mock_request.app.state.settings.upstream_api_urls = []
 
         with pytest.raises(ValueError, match="no apis specified!"):
             await collection_search_client.all_collections(request=mock_request)

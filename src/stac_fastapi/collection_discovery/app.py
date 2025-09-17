@@ -1,13 +1,17 @@
 import logging
-from typing import Annotated, List, Optional
+from typing import Annotated, Dict, List, Optional
 
 import attr
 from brotli_asgi import BrotliMiddleware
-from fastapi import FastAPI, Query
+from fastapi import APIRouter, FastAPI, Query
+from stac_pydantic.api import Conformance, LandingPage
+from stac_pydantic.shared import MimeTypes
 from starlette.middleware import Middleware
 
 from stac_fastapi.api.app import StacApi
 from stac_fastapi.api.middleware import CORSMiddleware, ProxyHeaderMiddleware
+from stac_fastapi.api.models import HealthCheck
+from stac_fastapi.api.routes import create_async_endpoint
 from stac_fastapi.collection_discovery.core import (
     BASE_CONFORMANCE_CLASSES,
     CollectionSearchClient,
@@ -16,6 +20,7 @@ from stac_fastapi.collection_discovery.core import (
 from stac_fastapi.collection_discovery.settings import Settings
 from stac_fastapi.extensions.core import (
     CollectionSearchExtension,
+    CollectionSearchFilterExtension,
     FieldsExtension,
     FreeTextExtension,
     SortExtension,
@@ -40,9 +45,15 @@ class FederatedApisGetRequest(APIRequest):
     apis: Annotated[
         Optional[List[str]],
         Query(
-            description="List of STAC APIs to include in the search"  # noqa: E501
+            description="List of STAC APIs to include in the search. Can be provided as multiple query parameters (?apis=url1&apis=url2) or as a comma-separated string (?apis=url1,url2)"  # noqa: E501
         ),
     ] = attr.ib(default=None)
+
+    def __attrs_post_init__(self):
+        """Post-initialization to handle comma-separated apis parameter."""
+        if self.apis and len(self.apis) == 1 and "," in self.apis[0]:
+            # Split comma-separated string into list
+            self.apis = [api.strip() for api in self.apis[0].split(",") if api.strip()]
 
 
 @attr.s
@@ -63,11 +74,12 @@ class FederatedApisExtension(ApiExtension):
 
 
 cs_extensions = [
-    SortExtension(conformance_classes=[SortConformanceClasses.COLLECTIONS]),
     FieldsExtension(conformance_classes=[FieldsConformanceClasses.COLLECTIONS]),
     FreeTextExtension(
         conformance_classes=[FreeTextConformanceClasses.COLLECTIONS],
     ),
+    CollectionSearchFilterExtension(),
+    SortExtension(conformance_classes=[SortConformanceClasses.COLLECTIONS]),
     TokenPaginationExtension(),
     FederatedApisExtension(),
 ]
@@ -82,6 +94,101 @@ class StacCollectionSearchApi(StacApi):
         self.register_landing_page()
         self.register_conformance_classes()
         self.register_get_collections()
+
+    def register_landing_page(self) -> None:
+        """Register landing page (GET /)."""
+        self.router.add_api_route(
+            name="Landing Page",
+            path="/",
+            response_model=(
+                LandingPage if self.settings.enable_response_models else None
+            ),
+            responses={
+                200: {
+                    "content": {
+                        MimeTypes.json.value: {},
+                    },
+                    "model": LandingPage,
+                },
+            },
+            response_class=self.response_class,
+            response_model_exclude_unset=False,
+            response_model_exclude_none=True,
+            methods=["GET"],
+            endpoint=create_async_endpoint(
+                self.client.landing_page, FederatedApisGetRequest
+            ),
+        )
+
+    def register_conformance_classes(self) -> None:
+        """Register conformance classes (GET /conformance)."""
+        self.router.add_api_route(
+            name="Conformance Classes",
+            path="/conformance",
+            response_model=(
+                Conformance if self.settings.enable_response_models else None
+            ),
+            responses={
+                200: {
+                    "content": {
+                        MimeTypes.json.value: {},
+                    },
+                    "model": Conformance,
+                },
+            },
+            response_class=self.response_class,
+            response_model_exclude_unset=True,
+            response_model_exclude_none=True,
+            methods=["GET"],
+            endpoint=create_async_endpoint(
+                self.client.conformance, FederatedApisGetRequest
+            ),
+        )
+
+    def add_health_check(self) -> None:
+        """Add a health check."""
+
+        mgmt_router = APIRouter(prefix=self.app.state.router_prefix)
+
+        async def ping():
+            """Liveliness probe."""
+            return {"message": "PONG"}
+
+        mgmt_router.add_api_route(
+            name="Ping",
+            path="/_mgmt/ping",
+            response_model=Dict,
+            responses={
+                200: {
+                    "content": {
+                        MimeTypes.json.value: {},
+                    },
+                },
+            },
+            response_class=self.response_class,
+            methods=["GET"],
+            endpoint=ping,
+        )
+
+        mgmt_router.add_api_route(
+            name="Health",
+            path="/_mgmt/health",
+            response_model=(
+                HealthCheck if self.settings.enable_response_models else None
+            ),
+            responses={
+                200: {
+                    "content": {
+                        MimeTypes.json.value: {},
+                    },
+                    "model": HealthCheck,
+                },
+            },
+            response_class=self.response_class,
+            methods=["GET"],
+            endpoint=create_async_endpoint(health_check, FederatedApisGetRequest),
+        )
+        self.app.include_router(mgmt_router, tags=["Liveliness/Readiness"])
 
 
 api = StacCollectionSearchApi(

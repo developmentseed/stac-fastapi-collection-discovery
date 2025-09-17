@@ -38,7 +38,7 @@ TEST_APIS = [
 def integration_app():
     """Create an integration test app instance with real API settings."""
 
-    integration_settings = Settings(child_api_urls=",".join(TEST_APIS))
+    integration_settings = Settings(upstream_api_urls=",".join(TEST_APIS))
 
     api = StacCollectionSearchApi(
         app=FastAPI(
@@ -150,11 +150,11 @@ def test_real_health_check(integration_client):
     data = response.json()
 
     assert data["status"] == "UP"
-    assert "child_apis" in data
+    assert "upstream_apis" in data
 
     # Both APIs should be healthy
     for test_api in TEST_APIS:
-        assert data["child_apis"][test_api] is True
+        assert data["upstream_apis"][test_api] is True
 
 
 @pytest.mark.vcr

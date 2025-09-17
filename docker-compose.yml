@@ -6,7 +6,7 @@ services:
       - "8000:8000"
     command: ["uv", "run", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "stac_fastapi.collection_discovery.app:app", "--bind", "0.0.0.0:8000", "--workers", "1"]
     environment:
-      - CHILD_API_URLS=https://stac.maap-project.org,https://stac.eoapi.dev,https://cmr.earthdata.nasa.gov/stac/ALL
+      - UPSTREAM_API_URLS=https://stac.maap-project.org,https://stac.eoapi.dev,https://cmr.earthdata.nasa.gov/stac/ALL
     develop:
       watch:
         - action: sync+restart
