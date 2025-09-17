@@ -11,7 +11,7 @@ A collection-search-only STAC API that aggregates collection search results from
 - Token-based pagination across multiple APIs
 - Health check endpoint for monitoring upstream API availability and collection-search capability
 
-## Usage
+## Running it locally
 
 ### Run the server with uvicorn
 
@@ -27,7 +27,7 @@ Run the server:
 uv run python -m uvicorn stac_fastapi.collection_discovery.app:app --host 0.0.0.0 --port 8080
 ```
 
-### Docker
+### Run the server with Docker
 
 Run the docker network (STAC Collection Discovery API + STAC Browser)
 
