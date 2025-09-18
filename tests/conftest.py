@@ -8,7 +8,7 @@ from starlette.middleware import Middleware
 
 from stac_fastapi.api.middleware import CORSMiddleware, ProxyHeaderMiddleware
 from stac_fastapi.collection_discovery.app import (
-    BASE_CONFORMANCE_CLASSES,
+    COLLECTION_SEARCH_CONFORMANCE_CLASSES,
     StacCollectionSearchApi,
     collections_get_request_model,
     cs_extensions,
@@ -39,7 +39,9 @@ def test_app():
             description=test_settings.stac_fastapi_description,
         ),
         extensions=cs_extensions,
-        client=CollectionSearchClient(base_conformance_classes=BASE_CONFORMANCE_CLASSES),
+        client=CollectionSearchClient(
+            base_conformance_classes=COLLECTION_SEARCH_CONFORMANCE_CLASSES
+        ),
         settings=test_settings,
         collections_get_request_model=collections_get_request_model,
         health_check=health_check,

@@ -23,7 +23,10 @@ from stac_fastapi.types.stac import (
     LandingPage,
 )
 
-BASE_CONFORMANCE_CLASSES = [
+logger = logging.getLogger(__name__)
+
+
+COLLECTION_SEARCH_CONFORMANCE_CLASSES = [
     STACConformanceClasses.CORE,
     STACConformanceClasses.COLLECTIONS,
     OAFConformanceClasses.CORE,
@@ -51,12 +54,12 @@ class HealthCheckResponse(BaseModel):
     upstream_apis: Dict[str, UpstreamApiStatus]
 
 
-logger = logging.getLogger(__name__)
-
-
 class CollectionSearchClient(AsyncBaseCoreClient):
+    """AsyncBaseCoreClient modified to return interleaaved collection-search results
+    from multiple upstream APIs"""
+
     base_conformance_classes: List[str] = attr.ib(
-        factory=lambda: BASE_CONFORMANCE_CLASSES
+        factory=lambda: COLLECTION_SEARCH_CONFORMANCE_CLASSES
     )
 
     def _encode_token(self, state: Dict) -> str:
@@ -153,6 +156,26 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         return links
 
+    async def _fetch_api_conformance(
+        self, client: AsyncClient, api: str, semaphore: asyncio.Semaphore
+    ) -> Tuple[str, set]:
+        """Fetch conformance classes from a single API."""
+        async with semaphore:
+            try:
+                api_response = await client.get(f"{api}/conformance")
+                if api_response.status_code == 200:
+                    conformance_data = api_response.json()
+                    return api, set(conformance_data.get("conformsTo", []))
+                else:
+                    logger.warning(
+                        f"Failed to fetch conformance from {api}: "
+                        f"{api_response.status_code}"
+                    )
+                    return api, set()
+            except Exception as e:
+                logger.warning(f"Error fetching conformance from {api}: {e}")
+                return api, set()
+
     async def all_collections(
         self,
         request: Request,
@@ -168,6 +191,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         q: Optional[List[str]] = None,
         **kwargs,
     ) -> Collections:
+        """Collection search for multiple upstream APIs"""
         if not apis:
             apis = request.app.state.settings.upstream_api_urls
             if not apis:
@@ -253,7 +277,8 @@ class CollectionSearchClient(AsyncBaseCoreClient):
     ) -> LandingPage:
         """Landing page.
 
-        Modified version of the default with the STAC search links removed
+        Modified version of the default with the STAC item search links removed and
+        upstream APIs added as child links.
 
         Called with `GET /`.
 
@@ -293,8 +318,6 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                 for api in apis
             ]
         )
-
-        # Everything below is copy pasta from original method
 
         # Add Queryables link
         if self.extension_is_enabled("FilterExtension") or self.extension_is_enabled(
@@ -361,26 +384,6 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         return LandingPage(**landing_page)
 
-    async def _fetch_api_conformance(
-        self, client: AsyncClient, api: str, semaphore: asyncio.Semaphore
-    ) -> Tuple[str, set]:
-        """Fetch conformance classes from a single API."""
-        async with semaphore:
-            try:
-                api_response = await client.get(f"{api}/conformance")
-                if api_response.status_code == 200:
-                    conformance_data = api_response.json()
-                    return api, set(conformance_data.get("conformsTo", []))
-                else:
-                    logger.warning(
-                        f"Failed to fetch conformance from {api}: "
-                        f"{api_response.status_code}"
-                    )
-                    return api, set()
-            except Exception as e:
-                logger.warning(f"Error fetching conformance from {api}: {e}")
-                return api, set()
-
     async def conformance_classes(
         self, request: Request, apis: Optional[List[str]] = None
     ) -> List[str]:
@@ -399,18 +402,19 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             if not apis:
                 raise ValueError("no apis specified!")
 
-        # Fetch conformance classes from all upstream APIs
         semaphore = asyncio.Semaphore(10)
 
         async with AsyncClient() as client:
             tasks = [self._fetch_api_conformance(client, api, semaphore) for api in apis]
-            results = await asyncio.gather(*tasks)
+            upstream_conformance_classes = await asyncio.gather(*tasks)
 
         # Only check intersection for collection-search related conformance classes
         # Keep all other local conformance classes as-is
         collection_search_classes = {
             cls for cls in local_conformance_set if "collection-search" in cls
         }
+
+        # keep list of non-collection-search conformance classes
         other_classes = local_conformance_set - collection_search_classes
 
         def get_collection_search_suffix(cls: str) -> str:
@@ -419,13 +423,16 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                 return parts[-1]  # Get the suffix after collection-search
             return ""
 
+        # gather the suffixes of collection-search conformance classes
+        # e.g. #filter, #fields
         local_suffixes = {
             get_collection_search_suffix(cls) for cls in collection_search_classes
         }
 
-        # Find intersection based on collection-search suffixes
+        # Find the set of suffixes that are present in both the local API and all upstream
+        # APIs
         result_suffixes = local_suffixes
-        for _, upstream_set in results:
+        for _, upstream_set in upstream_conformance_classes:
             if upstream_set:
                 upstream_suffixes = {
                     get_collection_search_suffix(cls)
