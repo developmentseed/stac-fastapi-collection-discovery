@@ -24,7 +24,7 @@ export UPSTREAM_API_URLS=https://stac.eoapi.dev,https://stac.maap-project.org
 Run the server:
 
 ```bash
-uv run python -m uvicorn stac_fastapi.collection_discovery.app:app --host 0.0.0.0 --port 8080
+uv run python -m uvicorn stac_fastapi.collection_discovery.app:app --host 0.0.0.0 --port 8000
 ```
 
 ### Run the server with Docker
