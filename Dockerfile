@@ -2,7 +2,7 @@
 FROM alpine/git as git
 WORKDIR /app
 COPY .git /app/.git
-RUN git describe --tags --always --dirty 2>/dev/null > /version || echo "0.1.0" > /version
+RUN git describe --tags --always 2>/dev/null > /version || echo "0.1.0" > /version
 
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 

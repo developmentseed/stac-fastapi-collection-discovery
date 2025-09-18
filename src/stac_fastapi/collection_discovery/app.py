@@ -44,6 +44,8 @@ settings = Settings()
 DESCRIPTION = f"""A collection-search-only STAC API that combines paginated search results
 from multiple upstream STAC APIs.
 
+**User Guide:** <https://developmentseed.org/stac-fastapi-collection-discovery/v{__version__}/>
+
 ## API Configuration
 
 This API has been pre-configured to search this set of upstream STAC APIs by default:
