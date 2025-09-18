@@ -33,6 +33,8 @@ COLLECTION_SEARCH_CONFORMANCE_CLASSES = [
     OAFConformanceClasses.OPEN_API,
 ]
 
+HTTPX_TIMEOUT = 15.0
+
 
 class UpstreamApiStatus(BaseModel):
     """Status information for an upstream API."""
@@ -221,7 +223,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             json_response = api_request.json()
             return api, json_response
 
-        async with AsyncClient() as client:
+        async with AsyncClient(timeout=HTTPX_TIMEOUT) as client:
             current_urls = search_state.get("current", search_state.get("next", {}))
 
             for api, url in current_urls.items():
@@ -404,7 +406,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         semaphore = asyncio.Semaphore(10)
 
-        async with AsyncClient() as client:
+        async with AsyncClient(timeout=HTTPX_TIMEOUT) as client:
             tasks = [self._fetch_api_conformance(client, api, semaphore) for api in apis]
             upstream_conformance_classes = await asyncio.gather(*tasks)
 
@@ -512,7 +514,7 @@ async def health_check(
             except Exception:
                 return api, UpstreamApiStatus(healthy=False)
 
-    async with AsyncClient() as client:
+    async with AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         tasks = [check_api_health(client, api) for api in apis]
         results = await asyncio.gather(*tasks)
 
