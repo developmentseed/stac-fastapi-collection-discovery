@@ -68,6 +68,7 @@ known-first-party = ["stac_fastapi.collection_discovery"]
 [tool.pytest.ini_options]
 addopts = [
     "-v",
+    "--block-network"
 ]
 asyncio_mode = "auto"
 
