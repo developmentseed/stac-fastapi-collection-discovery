@@ -26,12 +26,14 @@ nav:
   - Home: index.md
   - Using the API: using-the-api.ipynb
   - Development - Contributing: contributing.md
-  - Changelog: changelog.md
 
 watch:
   - docs
 
+dev_addr: 127.0.0.1:8001
+
 plugins:
+  - mike
   - search
   - mkdocs-jupyter:
       include_source: True

@@ -1,12 +1,10 @@
 from pydantic import Field, field_validator
 
-from stac_fastapi.collection_discovery import __version__
 from stac_fastapi.types.config import ApiSettings
 
 
 class Settings(ApiSettings):
     stac_fastapi_title: str = "STAC Collection Discovery API"
-    stac_fastapi_version: str = __version__
     stac_fastapi_landing_id: str = "stac-fastapi"
 
     upstream_api_urls: str = Field(

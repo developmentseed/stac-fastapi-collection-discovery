@@ -13,6 +13,7 @@ from stac_fastapi.api.app import StacApi
 from stac_fastapi.api.middleware import CORSMiddleware, ProxyHeaderMiddleware
 from stac_fastapi.api.models import HealthCheck
 from stac_fastapi.api.routes import create_async_endpoint
+from stac_fastapi.collection_discovery import __version__
 from stac_fastapi.collection_discovery.core import (
     COLLECTION_SEARCH_CONFORMANCE_CLASSES,
     CollectionSearchClient,
@@ -251,7 +252,7 @@ api = StacCollectionSearchApi(
         redoc_url=None,
         root_path=settings.root_path,
         title=settings.stac_fastapi_title,
-        version=settings.stac_fastapi_version,
+        version=__version__,
         description=format_multiline_string(DESCRIPTION),
     ),
     description=format_multiline_string(DESCRIPTION),

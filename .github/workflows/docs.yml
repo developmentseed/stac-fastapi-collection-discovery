@@ -1,0 +1,27 @@
+name: Docs
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # to get gh-pages
+      - uses: astral-sh/setup-uv@v3
+      - name: Sync
+        run: uv sync --group docs
+      - name: Deploy
+        if: github.event_name == 'push' && startsWith(github.ref_name, 'v')
+        run: uv run mike deploy ${{ github.ref_name }} latest --push --update-aliases
+        env:
+          GIT_COMMITTER_NAME: ci-bot
+          GIT_COMMITTER_EMAIL: ci-bot@example.com

@@ -1,18 +1,19 @@
 [project]
 name = "stac-fastapi-collection-discovery"
-version = "0.1.0"
-description = "A STAC API that aggregates collection search results from multiple STAC APIs into a single unified interface."
+description = "A STAC API that aggregates collection search results from multiple STAC APIs."
 readme = "README.md"
 authors = [
-    { name = "hrodmn", email = "henry.rodman@gmail.com" }
+    { name = "hrodmn", email = "henry@developmentseed.org" }
 ]
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28.1",
-    "stac-fastapi-api>=6.0.0",
-    "stac-fastapi-extensions>=6.0.0",
-    "stac-fastapi-types>=6.0.0",
+    "stac-fastapi-api>=6.0.0,<7.0",
+    "stac-fastapi-extensions>=6.0.0,<7.0",
+    "stac-fastapi-types>=6.0.0,<7.0",
 ]
+
+dynamic = ["version"]
 
 [project.optional-dependencies]
 server = [
@@ -21,28 +22,36 @@ server = [
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/stac_fastapi"]
+[tool.pdm.build]
+includes = ["src"]
+excludes = ["tests/", "**/.mypy_cache", "**/.DS_Store"]
 
 [dependency-groups]
 dev = [
     "mypy>=1.17.0",
     "pytest>=8.4.1",
-    "ruff>=0.12.3",
+    "ruff>=0.13.0",
     "uvicorn>=0.35.0",
     "pytest-asyncio>=0.23.0",
     "pytest-recording>=0.13.0",
     "respx>=0.21.0",
     "httpx>=0.28.1",
     "pre-commit>=4.2.0",
+]
+docs = [
     "mkdocs>=1.6.1",
     "mkdocs-jupyter>=0.25.1",
     "mkdocs-material>=9.6.20",
     "markdown-callouts>=0.4.0",
+    "mike>=2.1.3",
 ]
+
+[tool.pdm.version]
+source = "scm"
+fallback_version = "0.1.0"
 
 [tool.mypy]
 ignore_missing_imports = true
