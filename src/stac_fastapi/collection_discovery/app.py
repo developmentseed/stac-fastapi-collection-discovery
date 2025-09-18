@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Annotated, Dict, List, Optional
 
 import attr
@@ -38,6 +39,50 @@ logger = logging.getLogger("stac_fastapi.collection_discovery")
 logger.setLevel(logging.INFO)
 
 settings = Settings()
+
+DESCRIPTION = f"""A collection-search-only STAC API that combines paginated search results
+from multiple upstream STAC APIs.
+
+## API Configuration
+
+This API has been pre-configured to search this set of upstream STAC APIs by default:
+
+{"\n\n".join("- " + url for url in settings.upstream_api_urls)}
+
+Users can override this configuration for individual requests by providing their own list
+of APIs using the `apis` query parameter, either as multiple parameters
+(`?apis=url1&apis=url2`) or as a comma-separated string (`?apis=url1,url2`).
+
+## Conformance Classes
+
+The API's conformance classes are dynamically calculated based on the intersection of
+capabilities across all queried upstream APIs. The conformance classes returned for
+any given request represent only the collection-search features that are supported by ALL
+upstream APIs in the request, limited to the extensions enabled in this application:
+filter, sort, free-text search, and fields selection.
+
+## Pagination Behavior
+
+The `limit` parameter is passed to each upstream API individually, meaning the total
+number of collections returned will be `limit × number of APIs`.
+For example, with `limit=10` and 3 upstream APIs, you may receive up to 30 collections per
+page. Pagination state is maintained using base64-encoded tokens that track the current
+position across all upstream APIs.
+
+## Example Usage
+
+- Search all pre-configured APIs: `GET /collections`
+
+- Search with bounding box: `GET /collections?bbox=-180,-90,180,90&limit=5`
+
+- Search specific APIs: `GET /collections?apis=https://stac.eoapi.dev,https://stac.maap-project.org`
+
+- Free-text search: `GET /collections?q=landsat,sentinel`
+
+- Filtered search: `GET /collections?filter=mission='sentinel-2'&filter-lang=cql2-text`
+
+- Paginated search: `GET /collections?token=eyJ...`
+"""
 
 
 @attr.s
@@ -90,13 +135,15 @@ cs_extensions.append(collection_search_extension)
 
 
 class StacCollectionSearchApi(StacApi):
+    """StacApi modified to just enable components required for collection-search"""
+
     def register_core(self):
         self.register_landing_page()
         self.register_conformance_classes()
         self.register_get_collections()
 
     def register_landing_page(self) -> None:
-        """Register landing page (GET /)."""
+        """Register landing page (GET /) with the apis parameter enabled."""
         self.router.add_api_route(
             name="Landing Page",
             path="/",
@@ -121,7 +168,8 @@ class StacCollectionSearchApi(StacApi):
         )
 
     def register_conformance_classes(self) -> None:
-        """Register conformance classes (GET /conformance)."""
+        """Register conformance classes (GET /conformance) with the apis parameter
+        enabled."""
         self.router.add_api_route(
             name="Conformance Classes",
             path="/conformance",
@@ -146,7 +194,7 @@ class StacCollectionSearchApi(StacApi):
         )
 
     def add_health_check(self) -> None:
-        """Add a health check."""
+        """Add a health check with the apis parameter enabled."""
 
         mgmt_router = APIRouter(prefix=self.app.state.router_prefix)
 
@@ -191,39 +239,9 @@ class StacCollectionSearchApi(StacApi):
         self.app.include_router(mgmt_router, tags=["Liveliness/Readiness"])
 
 
-DESCRIPTION = (
-    "A collection-search-only STAC API that combines paginated search results from "
-    "multiple upstream STAC APIs into a single unified interface.\n\n"
-    "## API Configuration\n"
-    "The application can be pre-configured with a default set of upstream STAC APIs via "
-    "the `UPSTREAM_API_URLS` environment variable (comma-separated list). "
-    "Users can override this configuration for individual requests by providing their "
-    "own list of APIs using the `apis` query parameter, "
-    "either as multiple parameters (`?apis=url1&apis=url2`) or as a comma-separated "
-    "string (`?apis=url1,url2`).\n\n"
-    "## Conformance Classes\n"
-    "The API's conformance classes are dynamically calculated based on the intersection "
-    "of capabilities across all queried upstream APIs. "
-    "The conformance classes returned for any given request represent only the "
-    "collection-search features that are commonly supported by ALL upstream APIs in the "
-    "request, limited to the extensions enabled in this application: filter, sort, "
-    "free-text search, and fields selection.\n\n"
-    "## Pagination Behavior\n"
-    "The `limit` parameter is passed to each upstream API individually, meaning the "
-    "total number of collections returned will be `limit × number_of_APIs`. "
-    "For example, with `limit=10` and 3 upstream APIs, you may receive up to 30 "
-    "collections per page. "
-    "Pagination state is maintained using base64-encoded tokens that track the current "
-    "position across all upstream APIs.\n\n"
-    "## Example Usage\n"
-    "- Search all pre-configured APIs: `GET /collections`\n"
-    "- Search with bounding box: `GET /collections?bbox=-180,-90,180,90&limit=5`\n"
-    "- Search specific APIs: `GET /collections?apis=https://stac.eoapi.dev,https://stac.maap-project.org`\n"
-    "- Free-text search: `GET /collections?q=landsat,sentinel`\n"
-    "- Filtered search: `GET /collections?filter=mission='sentinel-2'&"
-    "filter-lang=cql2-text`\n"
-    "- Paginated search: `GET /collections?token=eyJ...`"
-)
+def format_multiline_string(string: str) -> str:
+    """Format a multi-line string for use in metadata fields"""
+    return re.sub(r" +", " ", re.sub(r"(?<!\n)\n(?!\n)", " ", string))
 
 
 api = StacCollectionSearchApi(
@@ -234,9 +252,9 @@ api = StacCollectionSearchApi(
         root_path=settings.root_path,
         title=settings.stac_fastapi_title,
         version=settings.stac_fastapi_version,
-        description=DESCRIPTION,
+        description=format_multiline_string(DESCRIPTION),
     ),
-    description=DESCRIPTION,
+    description=format_multiline_string(DESCRIPTION),
     extensions=cs_extensions,
     client=CollectionSearchClient(
         base_conformance_classes=COLLECTION_SEARCH_CONFORMANCE_CLASSES
