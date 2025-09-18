@@ -21,7 +21,9 @@ jobs:
         run: uv sync --group docs
       - name: Deploy
         if: github.event_name == 'push' && startsWith(github.ref_name, 'v')
-        run: uv run mike deploy ${{ github.ref_name }} latest --push --update-aliases
+        run: |
+          uv run mike deploy ${{ github.ref_name }} latest --push --update-aliases
+          uv run mike set-default --push latest
         env:
           GIT_COMMITTER_NAME: ci-bot
           GIT_COMMITTER_EMAIL: ci-bot@example.com
