@@ -5,7 +5,7 @@ readme = "README.md"
 authors = [
     { name = "hrodmn", email = "henry@developmentseed.org" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
     "stac-fastapi-api>=6.0.0,<7.0",
@@ -19,6 +19,9 @@ dynamic = ["version"]
 server = [
     "gunicorn>=23.0.0",
     "uvicorn>=0.35.0",
+]
+lambda = [
+    "mangum>=0.19.0",
 ]
 
 [build-system]
