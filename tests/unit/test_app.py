@@ -239,7 +239,7 @@ class TestApp:
     async def test_conformance_with_custom_apis(self, client):
         """Test conformance endpoint with custom APIs parameter."""
         # Mock upstream API conformance endpoints for custom APIs
-        respx.get("https://custom-api1.example.com/conformance").mock(
+        respx.get("https://custom-api1.example.com").mock(
             return_value=Response(
                 200,
                 json={
@@ -250,7 +250,7 @@ class TestApp:
                 },
             )
         )
-        respx.get("https://custom-api2.example.com/conformance").mock(
+        respx.get("https://custom-api2.example.com").mock(
             return_value=Response(
                 200,
                 json={

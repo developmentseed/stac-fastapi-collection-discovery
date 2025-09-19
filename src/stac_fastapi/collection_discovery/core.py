@@ -40,6 +40,7 @@ class UpstreamApiStatus(BaseModel):
     """Status information for an upstream API."""
 
     healthy: bool
+    collection_search_conformance: list[str]
 
 
 class LifespanStatus(BaseModel):
@@ -164,7 +165,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         """Fetch conformance classes from a single API."""
         async with semaphore:
             try:
-                api_response = await client.get(f"{api}/conformance")
+                api_response = await client.get(api, follow_redirects=True)
                 if api_response.status_code == 200:
                     conformance_data = api_response.json()
                     return api, set(conformance_data.get("conformsTo", []))
@@ -507,12 +508,38 @@ async def health_check(
     async def check_api_health(client, api: str) -> tuple[str, UpstreamApiStatus]:
         async with semaphore:
             try:
-                # Check landing page health
-                api_response = await client.get(api)
-                return api, UpstreamApiStatus(healthy=api_response.status_code == 200)
+                # Check landing page health - follow redirects automatically
+                api_response = await client.get(api, follow_redirects=True)
+                # Consider 2xx and 3xx status codes as healthy
+                is_healthy = 200 <= api_response.status_code < 400
+
+                collection_search_conformance = []
+                if is_healthy:
+                    try:
+                        response_data = api_response.json()
+                        conforms_to = response_data.get("conformsTo", [])
+                        # Extract collection-search conformance classes with suffixes
+                        for cls in conforms_to:
+                            if "collection-search" in cls:
+                                # Extract from "collection-search" onwards
+                                collection_search_part = cls[
+                                    cls.find("collection-search") :
+                                ]
+                                collection_search_conformance.append(
+                                    collection_search_part
+                                )
+                    except Exception as e:
+                        logger.warning(f"Failed to parse conformance from {api}: {e}")
+
+                return api, UpstreamApiStatus(
+                    healthy=is_healthy,
+                    collection_search_conformance=collection_search_conformance,
+                )
 
             except Exception:
-                return api, UpstreamApiStatus(healthy=False)
+                return api, UpstreamApiStatus(
+                    healthy=False, collection_search_conformance=[]
+                )
 
     async with AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         tasks = [check_api_health(client, api) for api in apis]
