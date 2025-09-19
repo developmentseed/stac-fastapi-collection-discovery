@@ -67,3 +67,23 @@ class TestHealthCheck:
 
         api2_result = result.upstream_apis["https://api2.example.com"]
         assert api2_result.healthy is False
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_health_check_redirects_healthy(self, mock_request):
+        """Test health check when APIs return redirects (should be considered healthy)."""
+        # Mock api1 to redirect once then return success
+        respx.get("https://api1.example.com").mock(return_value=Response(301))
+        # Mock api2 to redirect once then return success
+        respx.get("https://api2.example.com").mock(return_value=Response(302))
+
+        result = await health_check(mock_request)
+
+        assert result.status == "UP"
+        assert result.lifespan.status == "UP"
+
+        api1_result = result.upstream_apis["https://api1.example.com"]
+        assert api1_result.healthy is True
+
+        api2_result = result.upstream_apis["https://api2.example.com"]
+        assert api2_result.healthy is True
