@@ -26,6 +26,14 @@ from stac_fastapi.types.stac import (
 logger = logging.getLogger(__name__)
 
 
+def _robust_urljoin(base: str, path: str) -> str:
+    """Join URL parts robustly, ensuring base is treated as a directory."""
+    # Ensure base ends with slash so it's treated as a directory
+    if not base.endswith("/"):
+        base += "/"
+    return urljoin(base, path)
+
+
 COLLECTION_SEARCH_CONFORMANCE_CLASSES = [
     STACConformanceClasses.CORE,
     STACConformanceClasses.COLLECTIONS,
@@ -113,7 +121,9 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             logger.info("Continuing collection search with token pagination")
         else:
             search_state = {
-                "current": {api: f"{api}/collections?{param_str}" for api in apis},
+                "current": {
+                    api: _robust_urljoin(api, f"collections?{param_str}") for api in apis
+                },
                 "is_first_page": True,
             }
             logger.info(f"Starting new collection search across {len(apis)} APIs")
@@ -140,7 +150,9 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             links.append(
                 {
                     "rel": "previous",
-                    "href": f"{request.base_url}collections?token={prev_token}",
+                    "href": _robust_urljoin(
+                        str(request.base_url), f"collections?token={prev_token}"
+                    ),
                 }
             )
 
@@ -153,7 +165,9 @@ class CollectionSearchClient(AsyncBaseCoreClient):
             links.append(
                 {
                     "rel": "next",
-                    "href": f"{request.base_url}collections?token={next_token}",
+                    "href": _robust_urljoin(
+                        str(request.base_url), f"collections?token={next_token}"
+                    ),
                 }
             )
 
