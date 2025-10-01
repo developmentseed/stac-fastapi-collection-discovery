@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from urllib.parse import unquote, urlencode, urljoin
 
 import attr
-from fastapi import Query, Request
+from fastapi import HTTPException, Query, Request
 from httpx import AsyncClient
 from pydantic import BaseModel
 from stac_pydantic.links import Relations
@@ -42,6 +42,33 @@ COLLECTION_SEARCH_CONFORMANCE_CLASSES = [
 ]
 
 HTTPX_TIMEOUT = 15.0
+
+
+def _resolve_apis(
+    apis: list[str] | None, request: Request, allow_empty: bool = False
+) -> list[str]:
+    """Resolve the list of APIs from parameter or app settings.
+
+    Args:
+        apis: User-provided list of API URLs, or None to use settings
+        request: FastAPI request object containing app state
+        allow_empty: If True, return empty list when no APIs found; if False, raise error
+
+    Returns:
+        List of API URLs
+
+    Raises:
+        HTTPException: When no APIs are found and allow_empty is False
+    """
+    if not apis:
+        apis = request.app.state.settings.upstream_api_urls
+        if not apis and not allow_empty:
+            raise HTTPException(
+                status_code=400,
+                detail="No APIs specified. Provide 'apis' parameter or configure "
+                "upstream_api_urls in this application.",
+            )
+    return apis or []
 
 
 class UpstreamApiStatus(BaseModel):
@@ -113,13 +140,15 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         }
 
     def _get_search_state(
-        self, token: str | None, apis: list[str], param_str: str
+        self, token: str | None, apis: list[str] | None, param_str: str
     ) -> dict[str, Any]:
         """Get or create search state based on token."""
         if token:
             search_state = self._decode_token(token)
             logger.info("Continuing collection search with token pagination")
         else:
+            if not apis:
+                raise ValueError("No apis specified")
             search_state = {
                 "current": {
                     api: _robust_urljoin(api, f"collections?{param_str}") for api in apis
@@ -209,10 +238,10 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         **kwargs,
     ) -> Collections:
         """Collection search for multiple upstream APIs"""
-        if not apis:
-            apis = request.app.state.settings.upstream_api_urls
-            if not apis:
-                raise ValueError("no apis specified!")
+        # When using token pagination, apis are encoded in the token
+        # Only validate apis parameter when not using token
+        if not token:
+            apis = _resolve_apis(apis, request)
 
         params = self._build_search_params(
             bbox, datetime, limit, fields, sortby, filter_expr, filter_lang, q
@@ -231,10 +260,11 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         }
 
         async def fetch_api_data(
-            client, api: str, url: str
+            client: AsyncClient, api: str, url: str
         ) -> tuple[str, dict[str, Any]]:
             """Fetch data from a single API endpoint."""
             api_request = await client.get(url)
+            api_request.raise_for_status()
             json_response = api_request.json()
             return api, json_response
 
@@ -313,10 +343,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         )
 
         # Add upstream APIs as child links
-        if not apis:
-            apis = request.app.state.settings.upstream_api_urls
-            if not apis:
-                raise ValueError("no apis specified!")
+        apis = _resolve_apis(apis, request)
 
         # include the configured APIs in the description
         landing_page["description"] = (
@@ -414,10 +441,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         local_conformance_set = set(local_conformance_classes)
 
-        if not apis:
-            apis = request.app.state.settings.upstream_api_urls
-            if not apis:
-                raise ValueError("no apis specified!")
+        apis = _resolve_apis(apis, request)
 
         semaphore = asyncio.Semaphore(10)
 
@@ -511,10 +535,7 @@ async def health_check(
     ] = None,
 ) -> HealthCheckResponse:
     """PgSTAC HealthCheck."""
-    if not apis:
-        apis = request.app.state.settings.upstream_api_urls
-        if not apis:
-            raise ValueError("no apis specified!")
+    apis = _resolve_apis(apis, request)
 
     upstream_apis: dict[str, UpstreamApiStatus] = {}
     semaphore = asyncio.Semaphore(10)
