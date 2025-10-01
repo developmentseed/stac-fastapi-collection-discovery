@@ -170,6 +170,8 @@ class TestCollectionSearchClient:
         self, collection_search_client, mock_request, sample_collections_response
     ):
         """Test handling of API errors."""
+        from httpx import HTTPStatusError
+
         # One API returns error, one succeeds
         respx.get("https://api1.example.com/collections").mock(
             return_value=Response(500, json={"error": "Internal server error"})
@@ -179,7 +181,7 @@ class TestCollectionSearchClient:
         )
 
         # Should raise exception due to failed API call
-        with pytest.raises(KeyError):
+        with pytest.raises(HTTPStatusError):
             await collection_search_client.all_collections(request=mock_request)
 
     @pytest.mark.asyncio
@@ -243,15 +245,20 @@ class TestCollectionSearchClient:
 
     @pytest.mark.asyncio
     async def test_all_collections_empty_apis_parameter(self, collection_search_client):
-        """Test collection search with empty apis parameter raises ValueError."""
+        """Test collection search with empty apis parameter raises HTTPException."""
         from unittest.mock import Mock
+
+        from fastapi import HTTPException
 
         # Create a mock request with empty upstream_api_urls in settings
         mock_request = Mock()
         mock_request.app.state.settings.upstream_api_urls = []
 
-        with pytest.raises(ValueError, match="no apis specified!"):
+        with pytest.raises(HTTPException) as exc_info:
             await collection_search_client.all_collections(request=mock_request, apis=[])
+
+        assert exc_info.value.status_code == 400
+        assert "No APIs specified" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_all_collections_no_apis_fallback_to_settings(
@@ -260,12 +267,17 @@ class TestCollectionSearchClient:
         """Test that when no apis parameter provided, it falls back to settings."""
         from unittest.mock import Mock
 
+        from fastapi import HTTPException
+
         # Create a mock request with empty upstream_api_urls in settings
         mock_request = Mock()
         mock_request.app.state.settings.upstream_api_urls = []
 
-        with pytest.raises(ValueError, match="no apis specified!"):
+        with pytest.raises(HTTPException) as exc_info:
             await collection_search_client.all_collections(request=mock_request)
+
+        assert exc_info.value.status_code == 400
+        assert "No APIs specified" in exc_info.value.detail
 
     @pytest.mark.asyncio
     @respx.mock
@@ -318,6 +330,110 @@ class TestCollectionSearchClient:
 
         assert len(result["collections"]) == 2
         assert result["numberReturned"] == 2
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_apis_parameter_preserved_in_pagination(
+        self, collection_search_client, mock_request
+    ):
+        """Test that apis parameter is preserved when following next link."""
+        # Mock response with next link for first page
+        first_page_response = {
+            "collections": [
+                {
+                    "type": "Collection",
+                    "id": "api3-page1-collection-1",
+                    "title": "Collection Page 1",
+                    "description": "First page collection",
+                    "extent": {
+                        "spatial": {"bbox": [[-180, -90, 180, 90]]},
+                        "temporal": {
+                            "interval": [["2020-01-01T00:00:00Z", "2021-01-01T00:00:00Z"]]
+                        },
+                    },
+                    "license": "MIT",
+                    "links": [],
+                },
+            ],
+            "links": [
+                {"rel": "self", "href": "https://api3.example.com/collections"},
+                {
+                    "rel": "next",
+                    "href": "https://api3.example.com/collections?token=page2",
+                },
+            ],
+        }
+
+        # Mock response for second page
+        second_page_response = {
+            "collections": [
+                {
+                    "type": "Collection",
+                    "id": "api3-page2-collection-1",
+                    "title": "Collection Page 2",
+                    "description": "Second page collection",
+                    "extent": {
+                        "spatial": {"bbox": [[-180, -90, 180, 90]]},
+                        "temporal": {
+                            "interval": [["2020-01-01T00:00:00Z", "2021-01-01T00:00:00Z"]]
+                        },
+                    },
+                    "license": "MIT",
+                    "links": [],
+                },
+            ],
+            "links": [
+                {
+                    "rel": "self",
+                    "href": "https://api3.example.com/collections?token=page2",
+                },
+                {
+                    "rel": "previous",
+                    "href": "https://api3.example.com/collections",
+                },
+            ],
+        }
+
+        respx.route(url="https://api3.example.com/collections?token=page2").mock(
+            return_value=Response(200, json=second_page_response)
+        )
+        respx.route(url="https://api3.example.com/collections").mock(
+            return_value=Response(200, json=first_page_response)
+        )
+
+        # First request with custom apis parameter
+        custom_apis = ["https://api3.example.com"]
+        first_result = await collection_search_client.all_collections(
+            request=mock_request, apis=custom_apis
+        )
+
+        # Extract the next link and token from first page
+        next_link = next(
+            (link for link in first_result["links"] if link["rel"] == "next"), None
+        )
+        assert next_link is not None
+        assert "token=" in next_link["href"]
+
+        # Extract token from the next link
+        token = next_link["href"].split("token=")[1]
+
+        # Decode the token to verify apis are preserved
+        decoded_token = collection_search_client._decode_token(token)
+
+        # The token should contain the current state with the API URL
+        assert "current" in decoded_token
+        assert "https://api3.example.com" in decoded_token["current"]
+
+        # Now follow the next link (simulate second request)
+        # This should use the token which should have the apis preserved
+        second_result = await collection_search_client.all_collections(
+            request=mock_request, token=token
+        )
+
+        # Should have collections from page 2
+        assert len(second_result["collections"]) == 1
+        collection_ids = [c["id"] for c in second_result["collections"]]
+        assert "api3-page2-collection-1" in collection_ids
 
     @pytest.mark.asyncio
     async def test_not_implemented_methods(self, collection_search_client):
