@@ -4,22 +4,11 @@ from typing import Annotated, Dict, List, Optional
 
 import attr
 from brotli_asgi import BrotliMiddleware
-from fastapi import APIRouter, FastAPI, Query
-from stac_pydantic.api import Conformance, LandingPage
-from stac_pydantic.shared import MimeTypes
-from starlette.middleware import Middleware
-
+from fastapi import APIRouter, FastAPI, Query, Request
 from stac_fastapi.api.app import StacApi
 from stac_fastapi.api.middleware import CORSMiddleware, ProxyHeaderMiddleware
-from stac_fastapi.api.models import HealthCheck
+from stac_fastapi.api.models import HealthCheck, JSONResponse
 from stac_fastapi.api.routes import create_async_endpoint
-from stac_fastapi.collection_discovery import __version__
-from stac_fastapi.collection_discovery.core import (
-    COLLECTION_SEARCH_CONFORMANCE_CLASSES,
-    CollectionSearchClient,
-    health_check,
-)
-from stac_fastapi.collection_discovery.settings import Settings
 from stac_fastapi.extensions.core import (
     CollectionSearchExtension,
     CollectionSearchFilterExtension,
@@ -33,6 +22,17 @@ from stac_fastapi.extensions.core.free_text import FreeTextConformanceClasses
 from stac_fastapi.extensions.core.sort import SortConformanceClasses
 from stac_fastapi.types.extension import ApiExtension
 from stac_fastapi.types.search import APIRequest
+from stac_pydantic.api import Collections, Conformance, LandingPage
+from stac_pydantic.shared import MimeTypes
+from starlette.middleware import Middleware
+
+from stac_fastapi.collection_discovery import __version__
+from stac_fastapi.collection_discovery.core import (
+    COLLECTION_SEARCH_CONFORMANCE_CLASSES,
+    CollectionSearchClient,
+    health_check,
+)
+from stac_fastapi.collection_discovery.settings import Settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -90,6 +90,13 @@ position across all upstream APIs.
 
 @attr.s
 class FederatedApisGetRequest(APIRequest):
+    strict: Annotated[
+        bool,
+        Query(
+            description="If true, fail the entire request when any upstream API errors"
+        ),
+    ] = attr.ib(default=False)
+
     apis: Annotated[
         Optional[List[str]],
         Query(
@@ -196,6 +203,44 @@ class StacCollectionSearchApi(StacApi):
             ),
         )
 
+    def register_get_collections(self) -> None:
+        """Register get collections endpoint (GET /collections) with custom response
+        to inject X-Failed-Upstream-Apis header."""
+
+        async def get_collections(request: Request, **kwargs) -> JSONResponse:
+            """Custom collections endpoint that injects failure header."""
+            result = await self.client.all_collections(request=request, **kwargs)
+            body = result.collections
+            headers = {}
+            if result.failed_apis:
+                headers["X-Failed-Upstream-Apis"] = ",".join(result.failed_apis)
+
+            return JSONResponse(content=body, headers=headers)
+
+        self.router.add_api_route(
+            name="Get Collections",
+            path="/collections",
+            response_model=(
+                Collections if self.settings.enable_response_models else None
+            ),
+            responses={
+                200: {
+                    "content": {
+                        MimeTypes.json.value: {},
+                    },
+                    "model": Collections,
+                },
+            },
+            response_class=self.response_class,
+            response_model_exclude_unset=True,
+            response_model_exclude_none=True,
+            methods=["GET"],
+            endpoint=create_async_endpoint(  # type: ignore[arg-type]
+                get_collections,
+                collections_get_request_model,  # type: ignore[arg-type]
+            ),
+        )
+
     def add_health_check(self) -> None:
         """Add a health check with the apis parameter enabled."""
 
@@ -263,7 +308,7 @@ api = StacCollectionSearchApi(
         base_conformance_classes=COLLECTION_SEARCH_CONFORMANCE_CLASSES
     ),
     settings=settings,
-    collections_get_request_model=collections_get_request_model,
+    collections_get_request_model=collections_get_request_model,  # type: ignore[arg-type]
     health_check=health_check,
     middlewares=[
         Middleware(BrotliMiddleware),

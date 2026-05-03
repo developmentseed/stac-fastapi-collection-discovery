@@ -10,3 +10,6 @@ wheels/
 .venv
 
 /docs/.ipynb_checkpoints/
+
+# Execution plans
+dev-docs/plans/

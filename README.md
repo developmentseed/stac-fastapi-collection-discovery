@@ -10,6 +10,7 @@ A collection-search-only STAC API that aggregates collection search results from
 - Supports standard STAC collection search parameters (bbox, datetime, limit, fields, sortby, filter, free text)
 - Token-based pagination across multiple APIs
 - Health check endpoint for monitoring upstream API availability and collection-search capability
+- Graceful handling of upstream API failures with the `strict` query parameter. When `strict=false` (default), failed upstream APIs are skipped and the problematic URLs are returned in the `X-Failed-Upstream-Apis` response header. When `strict=true`, the search fails fast if any upstream API errors.
 
 ## Running it locally
 
