@@ -319,6 +319,7 @@ api = StacCollectionSearchApi(
             allow_credentials=True,
             allow_methods=settings.cors_methods,
             allow_headers=["*"],
+            expose_headers=["X-Failed-Upstream-Apis"],
         ),
     ],
 )
