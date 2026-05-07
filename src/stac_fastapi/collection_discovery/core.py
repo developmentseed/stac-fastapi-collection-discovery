@@ -2,16 +2,14 @@ import asyncio
 import base64
 import json
 import logging
+from dataclasses import dataclass
 from typing import Annotated, Any
 from urllib.parse import unquote, urlencode, urljoin
 
 import attr
 from fastapi import HTTPException, Query, Request
-from httpx import AsyncClient
+from httpx import AsyncClient, HTTPStatusError
 from pydantic import BaseModel
-from stac_pydantic.links import Relations
-from stac_pydantic.shared import BBox, MimeTypes
-
 from stac_fastapi.types.conformance import OAFConformanceClasses, STACConformanceClasses
 from stac_fastapi.types.core import AsyncBaseCoreClient
 from stac_fastapi.types.requests import get_base_url
@@ -22,6 +20,8 @@ from stac_fastapi.types.stac import (
     ItemCollection,
     LandingPage,
 )
+from stac_pydantic.links import Relations
+from stac_pydantic.shared import BBox, MimeTypes
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,14 @@ class HealthCheckResponse(BaseModel):
     status: str
     lifespan: LifespanStatus
     upstream_apis: dict[str, UpstreamApiStatus]
+
+
+@dataclass
+class CollectionSearchResult:
+    """Internal result wrapper for collection search."""
+
+    collections: Collections
+    failed_apis: list[str]
 
 
 class CollectionSearchClient(AsyncBaseCoreClient):
@@ -222,11 +230,12 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                 logger.warning(f"Error fetching conformance from {api}: {e}")
                 return api, set()
 
-    async def all_collections(
+    async def all_collections(  # type: ignore[override]
         self,
         request: Request,
         apis: list[str] | None = None,
         token: str | None = None,
+        strict: bool = False,
         bbox: BBox | None = None,
         datetime: str | None = None,
         limit: int | None = None,
@@ -236,8 +245,8 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         filter_lang: str | None = None,
         q: list[str] | None = None,
         **kwargs,
-    ) -> Collections:
-        """Collection search for multiple upstream APIs"""
+    ) -> CollectionSearchResult:
+        """Collection search for multiple upstream APIs."""
         # When using token pagination, apis are encoded in the token
         # Only validate apis parameter when not using token
         if not token:
@@ -251,6 +260,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         collections = []
         canonical_links = []
+        failed_apis: list[str] = []
 
         new_state: dict[str, Any] = {
             "current": {},
@@ -278,10 +288,31 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                 fetch_api_data(client, api, url) for api, url in current_urls.items()
             ]
 
-            api_responses = await asyncio.gather(*tasks)
+            api_responses = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for api, json_response in api_responses:
+            for api, result in zip(current_urls.keys(), api_responses, strict=True):
                 url = current_urls[api]
+
+                if isinstance(result, Exception):
+                    if strict:
+                        raise result
+
+                    if isinstance(result, HTTPStatusError):
+                        response = result.response
+                        logger.warning(
+                            f"Upstream API returned error status: {api=}, {url=}, "
+                            f"status_code={response.status_code}, "
+                            f"response_body={response.text[:500]}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Upstream API request failed: {api=}, {url=}, error={result}"
+                        )
+                    failed_apis.append(api)
+                    continue
+
+                assert isinstance(result, tuple)
+                json_response = result[1]
                 collections_count = len(json_response["collections"])
                 logger.info(f"Received {collections_count} collections from {api}")
 
@@ -313,13 +344,16 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         links = self._build_pagination_links(request, search_state, new_state)
         links.extend(canonical_links)
 
-        return Collections(
-            collections=collections,
-            links=links,
-            numberReturned=len(collections),
+        return CollectionSearchResult(
+            collections=Collections(
+                collections=collections,
+                links=links,
+                numberReturned=len(collections),
+            ),
+            failed_apis=failed_apis,
         )
 
-    async def landing_page(
+    async def landing_page(  # type: ignore[override]
         self, request: Request, apis: list[str] | None = None, **kwargs
     ) -> LandingPage:
         """Landing page.
@@ -428,7 +462,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         return LandingPage(**landing_page)
 
-    async def conformance_classes(
+    async def conformance_classes(  # type: ignore[override]
         self, request: Request, apis: list[str] | None = None
     ) -> list[str]:
         """Generate conformance classes by finding intersection of local and upstream API
@@ -494,7 +528,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
 
         return sorted(result_set)
 
-    async def conformance(
+    async def conformance(  # type: ignore[override]
         self, request: Request, apis: list[str] | None, **kwargs
     ) -> dict[str, list[str]]:
         """Conformance classes endpoint.
@@ -533,6 +567,7 @@ async def health_check(
         list[str] | None,
         Query(description="List of STAC APIs to check health status for"),
     ] = None,
+    **kwargs,
 ) -> HealthCheckResponse:
     """PgSTAC HealthCheck."""
     apis = _resolve_apis(apis, request)

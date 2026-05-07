@@ -358,3 +358,64 @@ class TestApp:
         conformance_classes = data["conformsTo"]
         assert any("core" in cls for cls in conformance_classes)
         assert any("collections" in cls for cls in conformance_classes)
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_collections_endpoint_with_failed_upstream(
+        self, client, sample_collections_response
+    ):
+        """Test that failed upstream API is reported via header."""
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(500, json={"error": "boom"})
+        )
+        respx.get("https://api2.example.com/collections").mock(
+            return_value=Response(200, json=sample_collections_response)
+        )
+
+        response = client.get("/collections")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "collections" in data
+        assert len(data["collections"]) == 2
+        assert "X-Failed-Upstream-Apis" in response.headers
+        assert "https://api1.example.com" in response.headers["X-Failed-Upstream-Apis"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_collections_endpoint_strict_mode(
+        self, client, sample_collections_response
+    ):
+        """Test that strict=true causes error when upstream API fails."""
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(500, json={"error": "boom"})
+        )
+        respx.get("https://api2.example.com/collections").mock(
+            return_value=Response(200, json=sample_collections_response)
+        )
+
+        # strict=True propagates the upstream exception through the endpoint
+        from httpx import HTTPStatusError
+
+        with pytest.raises(HTTPStatusError):
+            client.get("/collections?strict=true")
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_collections_endpoint_no_failed_header_when_all_healthy(
+        self, client, sample_collections_response
+    ):
+        """Test that healthy upstreams don't produce failure header."""
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(200, json=sample_collections_response)
+        )
+        respx.get("https://api2.example.com/collections").mock(
+            return_value=Response(200, json=sample_collections_response)
+        )
+
+        response = client.get("/collections")
+
+        assert response.status_code == 200
+        assert "X-Failed-Upstream-Apis" not in response.headers
+        data = response.json()
+        assert len(data["collections"]) == 4

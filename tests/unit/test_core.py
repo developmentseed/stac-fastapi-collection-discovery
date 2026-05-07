@@ -60,22 +60,26 @@ class TestCollectionSearchClient:
         result = await collection_search_client.all_collections(request=mock_request)
 
         # Should have collections from both APIs
-        assert len(result["collections"]) == 4
-        assert result["numberReturned"] == 4
+        assert len(result.collections["collections"]) == 4
+        assert result.collections["numberReturned"] == 4
 
         # Check collection IDs
-        collection_ids = [c["id"] for c in result["collections"]]
+        collection_ids = [c["id"] for c in result.collections["collections"]]
         assert "api1-collection-1" in collection_ids
         assert "api1-collection-2" in collection_ids
         assert "api2-collection-1" in collection_ids
         assert "api2-collection-2" in collection_ids
 
         # Check links
-        self_link = next(link for link in result["links"] if link["rel"] == "self")
+        self_link = next(
+            link for link in result.collections["links"] if link["rel"] == "self"
+        )
         assert self_link["href"] == str(mock_request.url)
 
         # Should have canonical links to both APIs
-        canonical_links = [link for link in result["links"] if link["rel"] == "canonical"]
+        canonical_links = [
+            link for link in result.collections["links"] if link["rel"] == "canonical"
+        ]
         assert len(canonical_links) == 2
 
     @pytest.mark.asyncio
@@ -105,7 +109,7 @@ class TestCollectionSearchClient:
 
         # Should have next link
         next_link = next(
-            (link for link in result["links"] if link["rel"] == "next"), None
+            (link for link in result.collections["links"] if link["rel"] == "next"), None
         )
         assert next_link is not None
         assert "token=" in next_link["href"]
@@ -138,8 +142,8 @@ class TestCollectionSearchClient:
             request=mock_request, token=token
         )
 
-        assert len(result["collections"]) == 4
-        assert result["numberReturned"] == 4
+        assert len(result.collections["collections"]) == 4
+        assert result.collections["numberReturned"] == 4
 
     @pytest.mark.asyncio
     @respx.mock
@@ -161,17 +165,15 @@ class TestCollectionSearchClient:
             limit=10,
         )
 
-        assert len(result["collections"]) == 4
-        assert result["numberReturned"] == 4
+        assert len(result.collections["collections"]) == 4
+        assert result.collections["numberReturned"] == 4
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_all_collections_api_error(
+    async def test_all_collections_api_error_strict_false(
         self, collection_search_client, mock_request, sample_collections_response
     ):
-        """Test handling of API errors."""
-        from httpx import HTTPStatusError
-
+        """Test that one failing API doesn't crash when strict=False (default)."""
         # One API returns error, one succeeds
         respx.get("https://api1.example.com/collections").mock(
             return_value=Response(500, json={"error": "Internal server error"})
@@ -180,9 +182,40 @@ class TestCollectionSearchClient:
             return_value=Response(200, json=sample_collections_response)
         )
 
-        # Should raise exception due to failed API call
+        result = await collection_search_client.all_collections(request=mock_request)
+
+        # Should only have collections from api2
+        assert len(result.collections["collections"]) == 2
+        assert result.collections["numberReturned"] == 2
+        assert result.failed_apis == ["https://api1.example.com"]
+
+        # Verify state only contains api2
+        for link in result.collections["links"]:
+            if link["rel"] in ("next", "previous"):
+                decoded = collection_search_client._decode_token(
+                    link["href"].split("token=")[1]
+                )
+                assert "https://api1.example.com" not in decoded["current"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_api_error_strict_true(
+        self, collection_search_client, mock_request, sample_collections_response
+    ):
+        """Test that one failing API raises when strict=True."""
+        from httpx import HTTPStatusError
+
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(500, json={"error": "Internal server error"})
+        )
+        respx.get("https://api2.example.com/collections").mock(
+            return_value=Response(200, json=sample_collections_response)
+        )
+
         with pytest.raises(HTTPStatusError):
-            await collection_search_client.all_collections(request=mock_request)
+            await collection_search_client.all_collections(
+                request=mock_request, strict=True
+            )
 
     @pytest.mark.asyncio
     @respx.mock
@@ -211,13 +244,15 @@ class TestCollectionSearchClient:
         )
 
         # Should only have collections from the specified APIs
-        assert len(result["collections"]) == 4  # 2 collections per API
-        collection_ids = [c["id"] for c in result["collections"]]
+        assert len(result.collections["collections"]) == 4  # 2 collections per API
+        collection_ids = [c["id"] for c in result.collections["collections"]]
         assert "api3-collection-1" in collection_ids
         assert "api4-collection-1" in collection_ids
 
         # Should have canonical links to both specified APIs
-        canonical_links = [link for link in result["links"] if link["rel"] == "canonical"]
+        canonical_links = [
+            link for link in result.collections["links"] if link["rel"] == "canonical"
+        ]
         assert len(canonical_links) == 2
 
     @pytest.mark.asyncio
@@ -236,11 +271,13 @@ class TestCollectionSearchClient:
         )
 
         # Should have collections from only one API
-        assert len(result["collections"]) == 2
-        assert result["numberReturned"] == 2
+        assert len(result.collections["collections"]) == 2
+        assert result.collections["numberReturned"] == 2
 
         # Should have only one canonical link
-        canonical_links = [link for link in result["links"] if link["rel"] == "canonical"]
+        canonical_links = [
+            link for link in result.collections["links"] if link["rel"] == "canonical"
+        ]
         assert len(canonical_links) == 1
 
     @pytest.mark.asyncio
@@ -305,7 +342,7 @@ class TestCollectionSearchClient:
 
         # Should have next link
         next_link = next(
-            (link for link in result["links"] if link["rel"] == "next"), None
+            (link for link in result.collections["links"] if link["rel"] == "next"), None
         )
         assert next_link is not None
         assert "token=" in next_link["href"]
@@ -328,8 +365,8 @@ class TestCollectionSearchClient:
             limit=5,
         )
 
-        assert len(result["collections"]) == 2
-        assert result["numberReturned"] == 2
+        assert len(result.collections["collections"]) == 2
+        assert result.collections["numberReturned"] == 2
 
     @pytest.mark.asyncio
     @respx.mock
@@ -409,7 +446,8 @@ class TestCollectionSearchClient:
 
         # Extract the next link and token from first page
         next_link = next(
-            (link for link in first_result["links"] if link["rel"] == "next"), None
+            (link for link in first_result.collections["links"] if link["rel"] == "next"),
+            None,
         )
         assert next_link is not None
         assert "token=" in next_link["href"]
@@ -431,9 +469,194 @@ class TestCollectionSearchClient:
         )
 
         # Should have collections from page 2
-        assert len(second_result["collections"]) == 1
-        collection_ids = [c["id"] for c in second_result["collections"]]
+        assert len(second_result.collections["collections"]) == 1
+        collection_ids = [c["id"] for c in second_result.collections["collections"]]
         assert "api3-page2-collection-1" in collection_ids
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_all_apis_fail_strict_false(
+        self, collection_search_client, mock_request
+    ):
+        """Test that all failing APIs returns empty collections with failed_apis."""
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(500, json={"error": "boom"})
+        )
+        respx.get("https://api2.example.com/collections").mock(
+            return_value=Response(503, json={"error": "down"})
+        )
+
+        result = await collection_search_client.all_collections(request=mock_request)
+
+        assert result.collections["collections"] == []
+        assert result.collections["numberReturned"] == 0
+        assert len(result.failed_apis) == 2
+        assert "https://api1.example.com" in result.failed_apis
+        assert "https://api2.example.com" in result.failed_apis
+
+        # Only self link
+        rels = {link["rel"] for link in result.collections["links"]}
+        assert rels == {"self"}
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_network_timeout(
+        self, collection_search_client, mock_request, sample_collections_response
+    ):
+        """Test that one timing-out API doesn't crash others."""
+        import httpx
+
+        respx.get("https://api1.example.com/collections").mock(
+            side_effect=httpx.TimeoutException("Connection timed out")
+        )
+        respx.get("https://api2.example.com/collections").mock(
+            return_value=Response(200, json=sample_collections_response)
+        )
+
+        result = await collection_search_client.all_collections(request=mock_request)
+
+        assert len(result.collections["collections"]) == 2
+        assert result.failed_apis == ["https://api1.example.com"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_malformed_json(
+        self, collection_search_client, mock_request, sample_collections_response
+    ):
+        """Test that one malformed JSON response doesn't crash others."""
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(200, text="not-json")
+        )
+        respx.get("https://api2.example.com/collections").mock(
+            return_value=Response(200, json=sample_collections_response)
+        )
+
+        result = await collection_search_client.all_collections(request=mock_request)
+
+        assert len(result.collections["collections"]) == 2
+        assert result.failed_apis == ["https://api1.example.com"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_pagination_with_failed_api(
+        self, collection_search_client, mock_request, sample_collections_response
+    ):
+        """Test pagination state excludes failed APIs."""
+        import copy
+
+        api1_response = copy.deepcopy(sample_collections_response)
+        api1_response["links"] = [
+            {"rel": "self", "href": "https://api1.example.com/collections"},
+            {
+                "rel": "next",
+                "href": "https://api1.example.com/collections?page=2",
+            },
+        ]
+
+        api2_response = copy.deepcopy(sample_collections_response)
+        api2_response["links"] = [
+            {"rel": "self", "href": "https://api2.example.com/collections"},
+        ]
+
+        # api3 fails with 500
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(200, json=api1_response)
+        )
+        respx.get("https://api2.example.com/collections").mock(
+            return_value=Response(200, json=api2_response)
+        )
+        respx.get("https://api3.example.com/collections").mock(
+            return_value=Response(500, json={"error": "boom"})
+        )
+
+        result = await collection_search_client.all_collections(
+            request=mock_request,
+            apis=[
+                "https://api1.example.com",
+                "https://api2.example.com",
+                "https://api3.example.com",
+            ],
+        )
+
+        assert len(result.collections["collections"]) == 4
+        assert "https://api3.example.com" in result.failed_apis
+
+        # Next token should only include api1 (the one with a next link)
+        next_link = next(
+            (link for link in result.collections["links"] if link["rel"] == "next"),
+            None,
+        )
+        assert next_link is not None
+        token = next_link["href"].split("token=")[1]
+        decoded = collection_search_client._decode_token(token)
+        assert "https://api3.example.com" not in decoded["current"]
+        assert "https://api1.example.com" in decoded["current"]
+        # api2 didn't have a next link so won't be in next page's state
+        assert "https://api2.example.com" not in decoded["current"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_empty_result_with_next_link(
+        self, collection_search_client, mock_request
+    ):
+        """Test that empty collections with next link are handled correctly."""
+        response_data = {
+            "collections": [],
+            "links": [
+                {"rel": "self", "href": "https://api1.example.com/collections"},
+                {
+                    "rel": "next",
+                    "href": "https://api1.example.com/collections?page=2",
+                },
+            ],
+        }
+
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(200, json=response_data)
+        )
+
+        result = await collection_search_client.all_collections(
+            request=mock_request, apis=["https://api1.example.com"]
+        )
+
+        assert result.collections["collections"] == []
+        assert result.collections["numberReturned"] == 0
+        assert result.failed_apis == []
+
+        next_link = next(
+            (link for link in result.collections["links"] if link["rel"] == "next"),
+            None,
+        )
+        assert next_link is not None
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_collections_empty_result_without_next_link(
+        self, collection_search_client, mock_request
+    ):
+        """Test that empty collections without next link ends pagination."""
+        response_data = {
+            "collections": [],
+            "links": [
+                {"rel": "self", "href": "https://api1.example.com/collections"},
+            ],
+        }
+
+        respx.get("https://api1.example.com/collections").mock(
+            return_value=Response(200, json=response_data)
+        )
+
+        result = await collection_search_client.all_collections(
+            request=mock_request, apis=["https://api1.example.com"]
+        )
+
+        assert result.collections["collections"] == []
+        assert result.collections["numberReturned"] == 0
+        next_link = next(
+            (link for link in result.collections["links"] if link["rel"] == "next"),
+            None,
+        )
+        assert next_link is None
 
     @pytest.mark.asyncio
     async def test_not_implemented_methods(self, collection_search_client):
