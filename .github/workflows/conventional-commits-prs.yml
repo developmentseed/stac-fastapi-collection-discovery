@@ -1,6 +1,9 @@
 name: PR Conventional Commit Validation
 
 on:
+  # zizmor: ignore[dangerous-triggers]
+  # Safe: this workflow does not check out any code; it only validates
+  # the PR title via the GitHub API.
   pull_request_target:
     types: [opened, synchronize, reopened, edited]
 
