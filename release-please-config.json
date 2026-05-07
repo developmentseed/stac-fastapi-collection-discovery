@@ -1,0 +1,8 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "stac-fastapi-collection-discovery"
+    }
+  }
+}
