@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/developmentseed/stac-fastapi-collection-discovery/compare/stac-fastapi-collection-discovery-v0.3.0...stac-fastapi-collection-discovery-v0.4.0) (2026-05-07)
+
+
+### Features
+
+* add aws handler and extra deps ([#4](https://github.com/developmentseed/stac-fastapi-collection-discovery/issues/4)) ([af2fbf5](https://github.com/developmentseed/stac-fastapi-collection-discovery/commit/af2fbf5e8776118ee7a25804b035b33b9029c561))
+* collect upstream api exceptions in a custom header ([#13](https://github.com/developmentseed/stac-fastapi-collection-discovery/issues/13)) ([fea27ea](https://github.com/developmentseed/stac-fastapi-collection-discovery/commit/fea27ea9728730edd5755ae1ca5b39d9d5a8fc69))
+* MVP ([#1](https://github.com/developmentseed/stac-fastapi-collection-discovery/issues/1)) ([e6a0f46](https://github.com/developmentseed/stac-fastapi-collection-discovery/commit/e6a0f46f713479b1a965c252efdba21e44da7bf6))
+
+
+### Bug Fixes
+
+* add timeout to httpx clients ([#5](https://github.com/developmentseed/stac-fastapi-collection-discovery/issues/5)) ([3377e1b](https://github.com/developmentseed/stac-fastapi-collection-discovery/commit/3377e1b3f4cc3772ea3607e4e9f41f8879975f9c))
+* follow redirects in httpx clients, better url joining, more verbose health check ([#6](https://github.com/developmentseed/stac-fastapi-collection-discovery/issues/6)) ([2e9158a](https://github.com/developmentseed/stac-fastapi-collection-discovery/commit/2e9158ad0d6c8a323f646884973df2a839b833a4))
+* refactor `apis` resolution, raise HTTPExceptions ([#8](https://github.com/developmentseed/stac-fastapi-collection-discovery/issues/8)) ([888b615](https://github.com/developmentseed/stac-fastapi-collection-discovery/commit/888b6151347508ee80306bfee8159b8d11741213))
+
+
+### Documentation
+
+* fix app port in README ([cc8c6ea](https://github.com/developmentseed/stac-fastapi-collection-discovery/commit/cc8c6ea0fdcf492eac08c38a97d781a3d4cbd77b))
+
 ## [0.3.0] - 2026-05-07
 
 ### Added
