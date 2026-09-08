@@ -27,8 +27,8 @@ class Settings(ApiSettings):
         description="API key for the LLM provider. Required if llm_provider is set.",
     )
     llm_model: str = Field(
-        default="gpt-4o",
-        description="Model name (e.g., 'gpt-4o', 'claude-sonnet-4-20250514')",
+        default="gpt-4o-mini",
+        description="Model name (e.g., 'gpt-4o-mini', 'claude-sonnet-4-20250514')",
     )
 
     # LLM Feature Flags (all default False for backward compatibility)
