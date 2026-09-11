@@ -85,7 +85,8 @@ known-first-party = ["stac_fastapi.collection_discovery"]
 testpaths = ["tests"]
 addopts = [
     "-v",
-    "--block-network"
+    "--block-network",
+    "--ignore=tests/manual"  # exclude manual tests from CI
 ]
 asyncio_mode = "auto"
 
