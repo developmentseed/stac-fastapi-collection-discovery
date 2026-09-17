@@ -98,6 +98,7 @@ class CollectionSearchResult:
 
     collections: Collections
     failed_apis: list[str]
+    metadata: dict[str, Any] | None = None
 
 
 class CollectionSearchClient(AsyncBaseCoreClient):
@@ -244,9 +245,53 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         filter_expr: str | None = None,
         filter_lang: str | None = None,
         q: list[str] | None = None,
+        query: str | None = None,
         **kwargs,
     ) -> CollectionSearchResult:
         """Collection search for multiple upstream APIs."""
+        # Natural-language mode: `query` triggers the LLM-assisted pipeline
+        if query:
+            return await self._assisted_collections(
+                request=request,
+                query=query,
+                apis=apis,
+                bbox=bbox,
+                datetime=datetime,
+                limit=limit,
+                q=q,
+            )
+
+        return await self._federated_collections(
+            request=request,
+            apis=apis,
+            token=token,
+            strict=strict,
+            bbox=bbox,
+            datetime=datetime,
+            limit=limit,
+            fields=fields,
+            sortby=sortby,
+            filter_expr=filter_expr,
+            filter_lang=filter_lang,
+            q=q,
+        )
+
+    async def _federated_collections(
+        self,
+        request: Request,
+        apis: list[str] | None = None,
+        token: str | None = None,
+        strict: bool = False,
+        bbox: BBox | None = None,
+        datetime: str | None = None,
+        limit: int | None = None,
+        fields: list[str] | None = None,
+        sortby: str | None = None,
+        filter_expr: str | None = None,
+        filter_lang: str | None = None,
+        q: list[str] | None = None,
+    ) -> CollectionSearchResult:
+        """Structured collection search with token pagination."""
         # When using token pagination, apis are encoded in the token
         # Only validate apis parameter when not using token
         if not token:
@@ -351,6 +396,99 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                 numberReturned=len(collections),
             ),
             failed_apis=failed_apis,
+        )
+
+    async def _assisted_collections(
+        self,
+        request: Request,
+        query: str,
+        apis: list[str] | None = None,
+        bbox: BBox | None = None,
+        datetime: str | None = None,
+        limit: int | None = None,
+        q: list[str] | None = None,
+    ) -> CollectionSearchResult:
+        """Natural-language collection search via the LLM-assisted pipeline.
+
+        The query is decomposed into topic/location/date, the topic expanded
+        into related terms, searched across upstream APIs (per-term fan-out
+        normalizing `q` semantics), and re-ranked by the LLM. Explicit
+        bbox/datetime/q params take precedence over LLM-derived values.
+        Token pagination is not supported in this mode.
+        """
+        from stac_fastapi.collection_discovery.llm.client import (
+            LLMConfigurationError,
+        )
+        from stac_fastapi.collection_discovery.pipeline import (
+            AssistedSearchPipeline,
+        )
+
+        apis = _resolve_apis(apis, request)
+        settings = request.app.state.settings
+
+        if not (settings.llm_provider and settings.llm_api_key):
+            raise HTTPException(
+                status_code=400,
+                detail="Natural language search requires LLM configuration. "
+                "Set LLM_PROVIDER and LLM_API_KEY, or use q/bbox/datetime "
+                "for a structured search instead.",
+            )
+
+        try:
+            pipeline = AssistedSearchPipeline(settings)
+        except LLMConfigurationError as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        result = await pipeline.search(
+            query,
+            apis=apis,
+            limit=limit or 10,
+            bbox=[float(c) for c in bbox] if bbox else None,
+            datetime_range=datetime,
+            extra_terms=q,
+            top_k=limit,
+        )
+
+        collections: list[Any] = []
+        for match in result.matches:
+            c = dict(match.collection)
+            c["assisted_search"] = {
+                "score": match.score,
+                "reason": match.reason,
+                "source_api": match.source_api,
+                "matched_term": match.matched_term,
+            }
+            collections.append(c)
+
+        links = [{"rel": "self", "href": str(request.url)}]
+        links.extend(
+            {"rel": "canonical", "href": _robust_urljoin(api, "collections")}
+            for api in apis
+        )
+
+        d = result.decomposed
+        metadata = {
+            "query": result.query,
+            "topic": d.topic if d else None,
+            "location": d.location if d else None,
+            "resolved_place": result.resolved_place,
+            "date_expression": d.date_expression if d else None,
+            "datetime_range": result.datetime_range,
+            "bbox": result.bbox,
+            "expanded_terms": result.expanded_terms,
+            "candidate_count": result.candidate_count,
+            "per_api_counts": result.per_api_counts,
+            "errors": result.errors,
+            "total_time_ms": round(result.total_time_ms, 1),
+        }
+
+        return CollectionSearchResult(
+            collections=Collections(
+                collections=collections,
+                links=links,
+                numberReturned=len(collections),
+            ),
+            failed_apis=result.failed_apis,
+            metadata=metadata,
         )
 
     async def landing_page(  # type: ignore[override]
