@@ -89,8 +89,12 @@ Penalize collections that only match via a generic keyword (e.g. 'MODIS',
 'NDVI') but aren't about the actual phenomenon asked about.
 
 Output format: {"ranked": [{"i": <number>, "score": <0-10>,
-"reason": "<few words>"}]} for the top candidates only.
-Omit anything clearly irrelevant (score < 3).
+"reason": "<few words>"}]}
+
+Return exactly the requested number of candidates, ordered by score.
+Include low-scoring candidates too — for scores < 3, the reason should
+briefly explain the mismatch (e.g. "matched generic keyword, unrelated
+variable").
 
 Respond with valid JSON only, no additional text.
 """.strip()

@@ -108,6 +108,7 @@ class CollectionReranker:
                 prompt=(
                     f'User query: "{query}"\n\nCollections:\n'
                     + "\n".join(lines)
+                    + f"\n\nReturn the top {top_k} candidates by score."
                 ),
                 system=RERANKING_SYSTEM_PROMPT,
                 json_mode=True,
@@ -150,19 +151,6 @@ class CollectionReranker:
                         )
                     )
 
-            # Append unranked leftovers after scored results
-            for i, c in enumerate(candidates):
-                if i not in used:
-                    reranked.append(
-                        RankedCollection(
-                            collection=c,
-                            score=None,
-                            reason=None,
-                            source_api=c.get("_source_api"),
-                            matched_term=c.get("_matched_term"),
-                        )
-                    )
-
             logger.info(
                 f"Reranked {len(candidates)} candidates -> "
                 f"{min(len(reranked), top_k)} results",
@@ -188,7 +176,7 @@ class CollectionReranker:
                     RankedCollection(
                         collection=c,
                         score=None,
-                        reason=None,
+                        reason="not ranked by the LLM reranker",
                         source_api=c.get("_source_api"),
                         matched_term=c.get("_matched_term"),
                     )
