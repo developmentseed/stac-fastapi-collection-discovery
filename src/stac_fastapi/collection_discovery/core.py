@@ -23,6 +23,9 @@ from stac_fastapi.types.stac import (
 from stac_pydantic.links import Relations
 from stac_pydantic.shared import BBox, MimeTypes
 
+from stac_fastapi.collection_discovery.llm.client import LLMConfigurationError
+from stac_fastapi.collection_discovery.pipeline import AssistedSearchPipeline
+
 logger = logging.getLogger(__name__)
 
 
@@ -416,13 +419,6 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         bbox/datetime/q params take precedence over LLM-derived values.
         Token pagination is not supported in this mode.
         """
-        from stac_fastapi.collection_discovery.llm.client import (
-            LLMConfigurationError,
-        )
-        from stac_fastapi.collection_discovery.pipeline import (
-            AssistedSearchPipeline,
-        )
-
         apis = _resolve_apis(apis, request)
         settings = request.app.state.settings
 

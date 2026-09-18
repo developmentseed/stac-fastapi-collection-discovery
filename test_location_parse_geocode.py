@@ -1,12 +1,11 @@
-"""Manual test script for location parsing and geocoding. Delete after testing."""
+"""Manual demo for location extraction (QueryDecomposer) and geocoding."""
 
 import asyncio
 
 from stac_fastapi.collection_discovery.llm import (
     Geocoder,
     LLMClient,
-    LocationExtractor,
-    LocationParser,
+    QueryDecomposer,
 )
 from stac_fastapi.collection_discovery.settings import Settings
 
@@ -37,18 +36,17 @@ async def main():
 
     client = LLMClient.from_settings(settings)
     geocoder = Geocoder()
-    extractor = LocationExtractor(client)
-    parser = LocationParser(client, geocoder)
+    decomposer = QueryDecomposer(client)
 
-    print("\n=== Testing LocationExtractor ===\n")
+    print("\n=== Testing Location Extraction (QueryDecomposer) ===\n")
     for query in GOOD_TEST_QUERIES:
         print(f"--- '{query}' ---")
-        result = await extractor.extract(query)
-        if result.place_name:
-            print(f"  Extracted: {result.place_name}")
+        result = await decomposer.decompose(query)
+        if result.location:
+            print(f"  Extracted: {result.location}")
         else:
             print("  No location found")
-        print(f"  Time: {result.extraction_time_ms:.0f}ms\n")
+        print(f"  Time: {result.decompose_time_ms:.0f}ms\n")
 
     print("\n=== Testing Geocoder ===\n")
     test_places = [
@@ -67,21 +65,24 @@ async def main():
             print(f"  Bbox: {result.bbox}")
             if result.geometry:
                 print(f"  Geometry: {result.geometry.get('type')}")
+            print(f"  Time: {result.geocode_time_ms:.0f}ms\n")
         else:
-            print("  Failed")
-        print(f"  Time: {result.geocode_time_ms:.0f}ms\n")
+            print("  Failed\n")
 
-    print("\n=== Testing Full Pipeline ===\n")
+    print("\n=== Testing Full Chain (decompose -> geocode) ===\n")
     for query in GOOD_TEST_QUERIES:
         print(f"--- '{query}' ---")
-        result = await parser.parse(query)
-        if result.bbox:
-            print(f"  Extracted: {result.extracted_place}")
-            print(f"  Resolved: {result.resolved_place}")
-            print(f"  Bbox: {result.bbox}")
+        decomposed = await decomposer.decompose(query)
+        if not decomposed.location:
+            print("  No location found\n")
+            continue
+        geocode = await geocoder.geocode(decomposed.location)
+        if geocode:
+            print(f"  Extracted: {decomposed.location}")
+            print(f"  Resolved: {geocode.resolved_name}")
+            print(f"  Bbox: {geocode.bbox}\n")
         else:
-            print(f"  Error: {result.error}")
-        print(f"  Time: {result.total_time_ms:.0f}ms\n")
+            print(f"  Failed to geocode '{decomposed.location}'\n")
 
 
 if __name__ == "__main__":

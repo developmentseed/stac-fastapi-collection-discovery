@@ -22,10 +22,6 @@ from stac_fastapi.collection_discovery.llm.expansion import (
 from stac_fastapi.collection_discovery.llm.location_parser import (
     Geocoder,
     GeocodeResult,
-    LocationExtractor,
-    LocationExtractionResult,
-    LocationParser,
-    LocationParseResult,
 )
 from stac_fastapi.collection_discovery.llm.query_parser import (
     DecomposedQuery,
@@ -53,10 +49,6 @@ __all__ = [
     "sanitize_term",
     "Geocoder",
     "GeocodeResult",
-    "LocationExtractor",
-    "LocationExtractionResult",
-    "LocationParser",
-    "LocationParseResult",
     "DecomposedQuery",
     "QueryDecomposer",
     "CollectionReranker",

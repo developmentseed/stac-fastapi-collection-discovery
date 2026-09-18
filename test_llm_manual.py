@@ -14,7 +14,8 @@ async def main():
     client = LLMClient.from_settings(settings)
 
     response = await client.generate(
-        prompt="List 3 scientific terms relating to 'deforestation' as a JSON array of strings",
+        prompt="List 3 scientific terms relating to 'deforestation'"
+        " as a JSON array of strings",
         system="Respond with valid JSON only, no additional text.",
         json_mode=True,
     )

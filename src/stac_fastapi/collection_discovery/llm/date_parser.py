@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import date
 
@@ -136,8 +137,6 @@ class DateParser:
         Returns:
             DateParseResult with parsed dates or error information
         """
-        import time
-
         start_time = time.perf_counter()
 
         if reference_date is None:

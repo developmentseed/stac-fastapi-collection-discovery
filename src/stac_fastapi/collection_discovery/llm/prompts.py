@@ -34,24 +34,6 @@ Examples:
 Respond with valid JSON only, no additional text.
 """.strip()
 
-# Location Extraction (#238)
-# Placeholder for future implementation
-LOCATION_EXTRACTION_SYSTEM_PROMPT = """
-You are a location extraction assistant.
-Extract place names from natural language queries.
-
-Output format: JSON object with "place_name" field.
-Return {{"place_name": null}} if no location found.
-
-Examples:
-- "Show me data for the Amazon" -> {{"place_name": "Amazon rainforest"}}
-- "Imagery around Los Angeles" -> {{"place_name": "Los Angeles"}}
-- "Northern California wildfires" -> {{"place_name": "Northern California"}}
-- "Landsat imagery" -> {{"place_name": null}}
-
-Respond with valid JSON only, no additional text.
-""".strip()
-
 # Query Decomposition (#241)
 # Splits a natural language query into topic, location, and date fields
 QUERY_DECOMPOSE_SYSTEM_PROMPT = """

@@ -1,4 +1,4 @@
-"""LLM-assisted location parsing with geocoding for natural language spatial queries."""
+"""Geocoding for natural language spatial queries via Nominatim (OpenStreetMap)."""
 
 from __future__ import annotations
 
@@ -9,29 +9,10 @@ from typing import Any
 
 import httpx
 
-from stac_fastapi.collection_discovery.llm.client import LLMClient, LLMError
-from stac_fastapi.collection_discovery.llm.prompts import (
-    LOCATION_EXTRACTION_SYSTEM_PROMPT,
-)
-
 logger = logging.getLogger(__name__)
 
 # Minimum bbox size in degrees (~50km) to ensure adequate coverage
 MIN_BBOX_SIZE = 0.5
-
-
-@dataclass
-class LocationExtractionResult:
-    """Result of extracting a place name from a query."""
-
-    original_query: str
-    """The original user query."""
-
-    place_name: str | None
-    """Extracted place name, or None if no location found."""
-
-    extraction_time_ms: float
-    """Time taken for extraction in milliseconds."""
 
 
 @dataclass
@@ -54,32 +35,6 @@ class GeocodeResult:
     """Time taken for geocoding in milliseconds."""
 
 
-@dataclass
-class LocationParseResult:
-    """Result of the full location parsing pipeline."""
-
-    original_query: str
-    """The original user query."""
-
-    extracted_place: str | None
-    """Place name extracted by LLM."""
-
-    resolved_place: str | None
-    """Canonical place name from geocoder."""
-
-    bbox: list[float] | None
-    """Bounding box [west, south, east, north]."""
-
-    geometry: dict[str, Any] | None
-    """GeoJSON geometry if available."""
-
-    total_time_ms: float
-    """Total pipeline time in milliseconds."""
-
-    error: str | None = None
-    """Error message if parsing failed."""
-
-
 def _ensure_min_bbox(bbox: list[float]) -> list[float]:
     """Expand bbox if smaller than MIN_BBOX_SIZE in either dimension."""
     min_lon, min_lat, max_lon, max_lat = bbox
@@ -97,78 +52,6 @@ def _ensure_min_bbox(bbox: list[float]) -> list[float]:
         max_lat = center_lat + MIN_BBOX_SIZE / 2
 
     return [min_lon, min_lat, max_lon, max_lat]
-
-
-class LocationExtractor:
-    """Extract place names from natural language queries using an LLM."""
-
-    def __init__(self, client: LLMClient):
-        """Initialize the location extractor.
-
-        Args:
-            client: LLM client for making generation requests
-        """
-        self._client = client
-
-    async def extract(self, query: str) -> LocationExtractionResult:
-        """Extract a place name from a natural language query.
-
-        Args:
-            query: Natural language query (e.g., "coral bleaching near Hawaii")
-
-        Returns:
-            LocationExtractionResult with extracted place name or None
-        """
-        start_time = time.perf_counter()
-
-        try:
-            response = await self._client.generate(
-                prompt=f'Extract the place name from this query: "{query}"',
-                system=LOCATION_EXTRACTION_SYSTEM_PROMPT,
-                json_mode=True,
-                temperature=0.0,
-                max_tokens=128,
-            )
-
-            extraction_time_ms = (time.perf_counter() - start_time) * 1000
-
-            parsed = response.parse_json()
-
-            if parsed is None:
-                logger.warning(
-                    f"Failed to parse LLM response as JSON: {response.content}"
-                )
-                return LocationExtractionResult(
-                    original_query=query,
-                    place_name=None,
-                    extraction_time_ms=extraction_time_ms,
-                )
-
-            place_name = parsed.get("place_name")
-
-            logger.info(
-                f"Extracted location from '{query}' -> {place_name}",
-                extra={
-                    "query": query,
-                    "place_name": place_name,
-                    "extraction_time_ms": round(extraction_time_ms, 2),
-                },
-            )
-
-            return LocationExtractionResult(
-                original_query=query,
-                place_name=place_name,
-                extraction_time_ms=extraction_time_ms,
-            )
-
-        except LLMError as e:
-            extraction_time_ms = (time.perf_counter() - start_time) * 1000
-            logger.error(f"LLM error extracting location from '{query}': {e}")
-            return LocationExtractionResult(
-                original_query=query,
-                place_name=None,
-                extraction_time_ms=extraction_time_ms,
-            )
 
 
 class Geocoder:
@@ -271,95 +154,3 @@ class Geocoder:
             geocode_time_ms = (time.perf_counter() - start_time) * 1000
             logger.error(f"Geocoding error for '{place_name}': {e}")
             return None
-
-
-class LocationParser:
-    """Full location parsing pipeline: extract place name + geocode to bbox.
-
-    Example:
-        ```python
-        parser = LocationParser(llm_client, geocoder)
-        result = await parser.parse("coral bleaching near Great Barrier Reef")
-        if result.bbox:
-            print(result.bbox)  # [142.5, -24.0, 154.0, -10.0]
-        ```
-    """
-
-    def __init__(self, client: LLMClient, geocoder: Geocoder):
-        """Initialize the location parser.
-
-        Args:
-            client: LLM client for extraction
-            geocoder: Geocoder for resolving place names to coordinates
-        """
-        self._extractor = LocationExtractor(client)
-        self._geocoder = geocoder
-
-    async def parse(
-        self,
-        query: str,
-        geocoding_timeout: float = 10.0,
-    ) -> LocationParseResult:
-        """Parse a natural language query to extract and geocode a location.
-
-        Args:
-            query: Natural language query
-            geocoding_timeout: Timeout for geocoding requests
-
-        Returns:
-            LocationParseResult with bbox, geometry, and metadata
-        """
-        start_time = time.perf_counter()
-
-        # Step 1: Extract place name using LLM
-        extraction = await self._extractor.extract(query)
-
-        if not extraction.place_name:
-            return LocationParseResult(
-                original_query=query,
-                extracted_place=None,
-                resolved_place=None,
-                bbox=None,
-                geometry=None,
-                total_time_ms=(time.perf_counter() - start_time) * 1000,
-                error="No location found in query",
-            )
-
-        # Step 2: Geocode the extracted place name
-        geocode = await self._geocoder.geocode(
-            extraction.place_name,
-            timeout=geocoding_timeout,
-        )
-
-        total_time_ms = (time.perf_counter() - start_time) * 1000
-
-        if geocode is None:
-            return LocationParseResult(
-                original_query=query,
-                extracted_place=extraction.place_name,
-                resolved_place=None,
-                bbox=None,
-                geometry=None,
-                total_time_ms=total_time_ms,
-                error=f"Failed to geocode '{extraction.place_name}'",
-            )
-
-        logger.info(
-            f"Parsed location from '{query}' -> {geocode.resolved_name} {geocode.bbox}",
-            extra={
-                "query": query,
-                "extracted_place": extraction.place_name,
-                "resolved_place": geocode.resolved_name,
-                "bbox": geocode.bbox,
-                "total_time_ms": round(total_time_ms, 2),
-            },
-        )
-
-        return LocationParseResult(
-            original_query=query,
-            extracted_place=extraction.place_name,
-            resolved_place=geocode.resolved_name,
-            bbox=geocode.bbox,
-            geometry=geocode.geometry,
-            total_time_ms=total_time_ms,
-        )
