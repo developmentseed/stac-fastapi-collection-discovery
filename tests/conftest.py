@@ -1,3 +1,4 @@
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -151,3 +152,39 @@ def sample_collections_response():
             },
         ],
     }
+
+
+class StubLLMResponse:
+    def __init__(self, content: str):
+        self.content = content
+
+    def parse_json(self):
+        try:
+            return json.loads(self.content)
+        except ValueError:
+            return None
+
+
+class StubLLM:
+    """LLMClient stand-in. `routes` maps a substring of the system prompt to
+    the content returned (dict/list are JSON-encoded, str is returned as-is)."""
+
+    def __init__(self, routes: dict, error: Exception | None = None):
+        self.routes = routes
+        self.error = error
+        self.calls: list[dict] = []
+
+    async def generate(self, prompt, system=None, **kwargs):
+        self.calls.append({"prompt": prompt, "system": system, **kwargs})
+        if self.error:
+            raise self.error
+        for key, content in self.routes.items():
+            if key in (system or ""):
+                body = content if isinstance(content, str) else json.dumps(content)
+                return StubLLMResponse(body)
+        raise AssertionError(f"no stub route for system prompt: {(system or '')[:60]!r}")
+
+
+@pytest.fixture
+def make_stub_llm():
+    return StubLLM

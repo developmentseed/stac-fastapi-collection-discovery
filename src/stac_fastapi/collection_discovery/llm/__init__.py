@@ -29,7 +29,8 @@ from stac_fastapi.collection_discovery.llm.query_parser import (
 )
 from stac_fastapi.collection_discovery.llm.reranker import (
     CollectionReranker,
-    RankedCollection,
+    RankCandidate,
+    RankedItem,
     RerankResult,
 )
 
@@ -52,6 +53,7 @@ __all__ = [
     "DecomposedQuery",
     "QueryDecomposer",
     "CollectionReranker",
-    "RankedCollection",
+    "RankCandidate",
+    "RankedItem",
     "RerankResult",
 ]
