@@ -31,24 +31,6 @@ class Settings(ApiSettings):
         description="Model name (e.g., 'gpt-4o-mini', 'claude-sonnet-4-20250514')",
     )
 
-    # LLM Feature Flags (all default False for backward compatibility)
-    query_expansion_enabled: bool = Field(
-        default=False,
-        description="Enable LLM-powered query expansion",
-    )
-    reranking_enabled: bool = Field(
-        default=False,
-        description="Enable LLM-powered result re-ranking",
-    )
-    date_parsing_enabled: bool = Field(
-        default=False,
-        description="Enable LLM-assisted natural language date parsing",
-    )
-    location_parsing_enabled: bool = Field(
-        default=False,
-        description="Enable LLM-assisted natural language location parsing",
-    )
-
     # LLM Tuning Parameters
     max_expansion_terms: int = Field(
         default=10,
@@ -56,17 +38,20 @@ class Settings(ApiSettings):
     )
     rerank_candidate_count: int = Field(
         default=50,
-        description="Number of candidates to fetch before re-ranking",
+        description="Number of top candidates (by term coverage) the LLM scores "
+        "per POST /discovery/rank request",
     )
-    rerank_return_count: int = Field(
-        default=10,
-        description="Number of results to return after re-ranking",
+    rerank_max_request_candidates: int = Field(
+        default=200,
+        description="Maximum candidates accepted by POST /discovery/rank; "
+        "larger requests are rejected with 422",
     )
 
     # Geocoding Configuration (for location parsing)
     geocoding_service_url: str | None = Field(
         default=None,
-        description="URL for geocoding API service",
+        description="Base URL of a Nominatim-compatible geocoder. Required for "
+        "location resolution; if unset, locations are not geocoded.",
     )
     geocoding_timeout: float = Field(
         default=10.0,

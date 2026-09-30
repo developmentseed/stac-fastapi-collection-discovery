@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 # Minimum bbox size in degrees (~50km) to ensure adequate coverage
 MIN_BBOX_SIZE = 0.5
 
+USER_AGENT = (
+    "STAC-Collection-Discovery/1.0 "
+    "(+https://developmentseed.org/stac-fastapi-collection-discovery)"
+)
+MAX_CACHE_ENTRIES = 1024
+
 
 @dataclass
 class GeocodeResult:
@@ -57,13 +63,21 @@ def _ensure_min_bbox(bbox: list[float]) -> list[float]:
 class Geocoder:
     """Geocode place names to bounding boxes using Nominatim (OpenStreetMap)."""
 
-    def __init__(self, base_url: str = "https://nominatim.openstreetmap.org"):
+    def __init__(self, base_url: str):
         """Initialize the geocoder.
 
         Args:
-            base_url: Base URL for the geocoding service
+            base_url: Base URL of a Nominatim-compatible service. Required:
+                there is deliberately no default, since the public
+                nominatim.openstreetmap.org instance may not be used to serve
+                an open endpoint.
         """
         self._base_url = base_url
+        self._cache: dict[str, GeocodeResult] = {}
+
+    @staticmethod
+    def _cache_key(place_name: str) -> str:
+        return " ".join(place_name.lower().split())
 
     async def geocode(
         self,
@@ -72,6 +86,9 @@ class Geocoder:
     ) -> GeocodeResult | None:
         """Geocode a place name to a bounding box.
 
+        Successful results are cached in-process by normalized name. Any
+        transport error or malformed upstream response yields None.
+
         Args:
             place_name: Place name to geocode (e.g., "San Francisco Bay Area")
             timeout: Request timeout in seconds
@@ -79,6 +96,10 @@ class Geocoder:
         Returns:
             GeocodeResult with bbox and geometry, or None if geocoding failed
         """
+        key = self._cache_key(place_name)
+        if key in self._cache:
+            return self._cache[key]
+
         start_time = time.perf_counter()
 
         url = f"{self._base_url}/search"
@@ -88,7 +109,7 @@ class Geocoder:
             "limit": 1,
             "polygon_geojson": 1,
         }
-        headers = {"User-Agent": "STAC-Collection-Discovery/1.0"}
+        headers = {"User-Agent": USER_AGENT}
 
         try:
             async with httpx.AsyncClient() as client:
@@ -142,15 +163,18 @@ class Geocoder:
                 },
             )
 
-            return GeocodeResult(
+            geocoded = GeocodeResult(
                 place_name=place_name,
                 resolved_name=result["display_name"],
                 bbox=bbox,
                 geometry=geometry,
                 geocode_time_ms=geocode_time_ms,
             )
+            if len(self._cache) >= MAX_CACHE_ENTRIES:
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[key] = geocoded
+            return geocoded
 
-        except httpx.HTTPError as e:
-            geocode_time_ms = (time.perf_counter() - start_time) * 1000
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as e:
             logger.error(f"Geocoding error for '{place_name}': {e}")
             return None
