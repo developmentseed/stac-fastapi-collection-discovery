@@ -419,3 +419,9 @@ class TestApp:
         assert "X-Failed-Upstream-Apis" not in response.headers
         data = response.json()
         assert len(data["collections"]) == 4
+
+
+def test_collections_has_no_llm_query_param(test_app):
+    """GET /collections must not expose the prototype `query` mode."""
+    params = test_app.openapi()["paths"]["/collections"]["get"]["parameters"]
+    assert "query" not in {p["name"] for p in params}
