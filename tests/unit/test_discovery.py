@@ -180,3 +180,124 @@ def test_interpret_malformed_date_output_is_a_warning_not_500(make_stub_llm, dat
     assert r.status_code == 200
     assert r.json()["datetime"] is None
     assert any("date" in w for w in r.json()["warnings"])
+
+
+RERANK = "ranking geospatial"
+
+
+def rank_body(*ids, **extra):
+    return {"query": "wildfires", "candidates": [{"id": i} for i in ids], **extra}
+
+
+def test_rank_returns_refs_scores_reasons_best_first(make_stub_llm):
+    stub = make_stub_llm(
+        {
+            RERANK: {
+                "ranked": [
+                    {"i": 1, "score": 3, "reason": "weak"},
+                    {"i": 2, "score": 9, "reason": "strong"},
+                ]
+            }
+        }
+    )
+    body = {
+        "query": "wildfires",
+        "candidates": [
+            {"ref": "https://a/collections/x", "id": "x", "title": "X"},
+            {"id": "y", "title": "Y"},
+        ],
+    }
+    r = make_client(stub).post("/discovery/rank", json=body)
+    assert r.status_code == 200
+    assert r.json() == {
+        "ranked": [
+            {"ref": "y", "score": 9.0, "reason": "strong"},
+            {"ref": "https://a/collections/x", "score": 3.0, "reason": "weak"},
+        ],
+        "unscored_count": 0,
+        "warnings": [],
+    }
+
+
+def test_rank_presorts_by_matched_terms_and_reports_unscored(make_stub_llm):
+    stub = make_stub_llm({RERANK: {"ranked": [{"i": 1, "score": 8, "reason": "ok"}]}})
+    body = {
+        "query": "q",
+        "candidates": [{"id": "a"}, {"id": "b", "matched_terms": ["t1", "t2"]}],
+    }
+    r = make_client(stub, rerank_candidate_count=1).post("/discovery/rank", json=body)
+    assert [x["ref"] for x in r.json()["ranked"]] == ["b", "a"]
+    assert r.json()["ranked"][1]["score"] is None
+    assert r.json()["unscored_count"] == 1
+    prompt = stub.calls[0]["prompt"]
+    assert "1. b - " in prompt and "a - " not in prompt  # only b is in the window
+
+
+def test_rank_duplicate_effective_refs_are_422(make_stub_llm):
+    stub = make_stub_llm({RERANK: {"ranked": []}})
+    body = {
+        "query": "q",
+        "candidates": [{"id": "same"}, {"id": "same", "title": "from another api"}],
+    }
+    r = make_client(stub).post("/discovery/rank", json=body)
+    assert r.status_code == 422 and "same" in r.text and stub.calls == []
+
+
+def test_rank_distinct_refs_allow_same_id(make_stub_llm):
+    stub = make_stub_llm({RERANK: {"ranked": []}})
+    body = {
+        "query": "q",
+        "candidates": [{"id": "same", "ref": "a|same"}, {"id": "same", "ref": "b|same"}],
+    }
+    assert make_client(stub).post("/discovery/rank", json=body).status_code == 200
+
+
+def test_rank_over_request_limit_is_422(make_stub_llm):
+    stub = make_stub_llm({RERANK: {"ranked": []}})
+    r = make_client(stub, rerank_max_request_candidates=2).post(
+        "/discovery/rank", json=rank_body("a", "b", "c")
+    )
+    assert r.status_code == 422 and stub.calls == []
+
+
+def test_rank_rejects_full_collection_objects(make_stub_llm):
+    body = {
+        "query": "q",
+        "candidates": [{"id": "a", "title": "A", "extent": {"spatial": {}}, "links": []}],
+    }
+    r = make_client(make_stub_llm({RERANK: {"ranked": []}})).post(
+        "/discovery/rank", json=body
+    )
+    assert r.status_code == 422
+
+
+def test_rank_empty_candidates_is_200_and_makes_no_llm_call(make_stub_llm):
+    stub = make_stub_llm({})
+    r = make_client(stub).post("/discovery/rank", json={"query": "q", "candidates": []})
+    assert r.status_code == 200
+    assert r.json() == {"ranked": [], "unscored_count": 0, "warnings": []}
+    assert stub.calls == []
+
+
+def test_rank_llm_failure_returns_200_unscored_with_warning(make_stub_llm):
+    stub = make_stub_llm({}, error=LLMError("down"))
+    r = make_client(stub).post("/discovery/rank", json=rank_body("a", "b"))
+    assert r.status_code == 200
+    assert [x["score"] for x in r.json()["ranked"]] == [None, None]
+    assert r.json()["unscored_count"] == 2
+    assert r.json()["warnings"] == ["rerank: LLM error: down"]
+
+
+def test_rank_llm_misconfigured_is_503():
+    app = FastAPI()
+    app.state.settings = Settings()
+    app.include_router(build_discovery_router())
+    assert TestClient(app).post("/discovery/rank", json=rank_body("a")).status_code == 503
+
+
+@pytest.mark.parametrize("query", ["", "   ", "x" * 1001])
+def test_rank_rejects_blank_or_overlong_query(make_stub_llm, query):
+    r = make_client(make_stub_llm({})).post(
+        "/discovery/rank", json={"query": query, "candidates": [{"id": "a"}]}
+    )
+    assert r.status_code == 422

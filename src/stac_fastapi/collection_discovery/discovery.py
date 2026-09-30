@@ -6,6 +6,7 @@ Both endpoints are stateless. The client performs the actual collection search
 
 import asyncio
 import logging
+from collections import Counter
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -24,6 +25,10 @@ from stac_fastapi.collection_discovery.llm.location_parser import Geocoder
 from stac_fastapi.collection_discovery.llm.query_parser import (
     DecomposedQuery,
     QueryDecomposer,
+)
+from stac_fastapi.collection_discovery.llm.reranker import (
+    CollectionReranker,
+    RankCandidate,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,6 +60,37 @@ class InterpretResponse(BaseModel):
     q: list[str]
     bbox: list[float] | None = None
     datetime: str | None = None
+    warnings: list[str] = []
+
+
+class RankCandidateIn(BaseModel):
+    """A slim candidate collection. Full collection objects are rejected."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: Annotated[str, Field(min_length=1, max_length=500)]
+    ref: Annotated[str, Field(min_length=1, max_length=2000)] | None = None
+    title: Annotated[str, Field(max_length=1000)] | None = None
+    matched_terms: Annotated[list[str], Field(max_length=50)] = Field(
+        default_factory=list
+    )
+
+
+class RankRequest(_QueryModel):
+    """Original query plus the candidate collections to rank."""
+
+    candidates: list[RankCandidateIn]
+
+
+class RankedOut(BaseModel):
+    ref: str
+    score: float | None
+    reason: str | None
+
+
+class RankResponse(BaseModel):
+    ranked: list[RankedOut]
+    unscored_count: int
     warnings: list[str] = []
 
 
@@ -162,6 +198,60 @@ def build_discovery_router() -> APIRouter:
 
         return InterpretResponse(
             q=terms, bbox=bbox, datetime=dt, warnings=[*w_terms, *w_dt, *w_bbox]
+        )
+
+    @router.post(
+        "/rank",
+        response_model=RankResponse,
+        summary="Rank candidate collections by relevance",
+        description=(
+            "Score candidates against the original query. Candidates are "
+            "ordered by term coverage (`matched_terms`) and the top "
+            "`rerank_candidate_count` are scored by the LLM; the rest are "
+            "returned after them with `score: null`. All candidates are "
+            "returned, best first. `reason` is plain text; escape it before "
+            "rendering as HTML."
+        ),
+    )
+    async def rank(
+        body: RankRequest,
+        request: Request,
+        llm: Annotated[LLMClient, Depends(get_llm)],
+    ) -> RankResponse:
+        settings = request.app.state.settings
+
+        if len(body.candidates) > settings.rerank_max_request_candidates:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Too many candidates ({len(body.candidates)}); "
+                f"maximum is {settings.rerank_max_request_candidates}.",
+            )
+
+        refs = [c.ref or c.id for c in body.candidates]
+        duplicates = sorted(r for r, n in Counter(refs).items() if n > 1)
+        if duplicates:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Duplicate candidate refs: {duplicates}. Supply a unique "
+                "`ref` per candidate (e.g. the collection's self link).",
+            )
+
+        candidates = [
+            RankCandidate(id=c.id, ref=ref, title=c.title, matched_terms=c.matched_terms)
+            for c, ref in zip(body.candidates, refs, strict=True)
+        ]
+        result = await CollectionReranker(llm).rerank(
+            body.query,
+            candidates,
+            max_scored=settings.rerank_candidate_count,
+        )
+        return RankResponse(
+            ranked=[
+                RankedOut(ref=r.ref, score=r.score, reason=r.reason)
+                for r in result.ranked
+            ],
+            unscored_count=result.unscored_count,
+            warnings=[f"rerank: {result.error}"] if result.error else [],
         )
 
     return router
