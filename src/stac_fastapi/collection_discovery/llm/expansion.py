@@ -116,6 +116,12 @@ class QueryExpander:
                 logger.warning(
                     f"No expansion terms parsed for '{topic}': {response.content[:200]}"
                 )
+                return ExpansionResult(
+                    topic=topic,
+                    terms=[topic],
+                    expansion_time_ms=expansion_time_ms,
+                    error="no expansion terms returned",
+                )
 
             # Sanitize and drop the original topic from expansions
             expanded = [

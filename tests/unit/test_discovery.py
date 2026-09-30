@@ -109,6 +109,7 @@ def test_interpret_unparseable_expansion_keeps_topic_only(make_stub_llm):
     client = make_client(make_stub_llm(routes))
     body = client.post("/discovery/interpret", json={"query": "wildfires"}).json()
     assert body["q"] == ["wildfires"]
+    assert any("expansion" in w for w in body["warnings"])
 
 
 def test_interpret_respects_max_expansion_terms(make_stub_llm):
@@ -382,3 +383,12 @@ def test_interpret_blank_topic_is_treated_as_no_topic(make_stub_llm):
         "/discovery/interpret", json={"query": "q"}
     )
     assert r.json()["q"] == [] and any("no topic" in w for w in r.json()["warnings"])
+
+
+def test_rank_non_json_reply_is_200_unscored_with_rerank_warning(make_stub_llm):
+    stub = make_stub_llm({RERANK: "not json"})
+    r = make_client(stub).post("/discovery/rank", json=rank_body("a", "b"))
+    assert r.status_code == 200
+    assert [x["score"] for x in r.json()["ranked"]] == [None, None]
+    assert r.json()["unscored_count"] == 2
+    assert any(w.startswith("rerank:") for w in r.json()["warnings"])

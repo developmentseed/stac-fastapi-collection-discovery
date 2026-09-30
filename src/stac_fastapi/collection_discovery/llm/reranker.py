@@ -15,9 +15,11 @@ logger = logging.getLogger(__name__)
 
 NOT_RANKED_REASON = "not ranked by the LLM reranker"
 NOT_SCORED_REASON = "not scored by the LLM"
+NO_REASON = "no reason given"
+NO_SCORES_ERROR = "LLM returned no usable scores"
 OVER_CAP_REASON = "not scored: over candidate cap"
 MIN_TOKENS = 512
-TOKENS_PER_CANDIDATE = 64
+TOKENS_PER_CANDIDATE = 96
 
 
 @dataclass
@@ -169,15 +171,21 @@ class CollectionReranker:
                 "rerank_time_ms": round(elapsed, 2),
             },
         )
+        if not scored:
+            logger.warning(
+                f"Reranker produced no usable scores for '{query}': "
+                f"{response.content[:200]}"
+            )
         return RerankResult(
             ranked=ranked,
             candidate_count=len(ordered),
             scored_count=len(scored),
             rerank_time_ms=elapsed,
+            error=None if scored else NO_SCORES_ERROR,
         )
 
     @staticmethod
-    def _parse(parsed: Any, window_size: int) -> dict[int, tuple[float, str | None]]:
+    def _parse(parsed: Any, window_size: int) -> dict[int, tuple[float, str]]:
         """Map 0-based window index -> (score, reason), ignoring invalid items."""
         items: Any = []
         if isinstance(parsed, dict):
@@ -185,7 +193,7 @@ class CollectionReranker:
         elif isinstance(parsed, list):
             items = parsed
 
-        scored: dict[int, tuple[float, str | None]] = {}
+        scored: dict[int, tuple[float, str]] = {}
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -198,5 +206,5 @@ class CollectionReranker:
             if score is None:
                 continue
             reason = item.get("reason")
-            scored[i - 1] = (score, reason if isinstance(reason, str) else None)
+            scored[i - 1] = (score, reason if isinstance(reason, str) else NO_REASON)
         return scored
