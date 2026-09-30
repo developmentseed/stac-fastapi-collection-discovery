@@ -226,8 +226,13 @@ def build_discovery_router() -> APIRouter:
                 status_code=503, detail=f"LLM unavailable: {decomposed.error}"
             )
 
+        async def _no_terms() -> tuple[list[str], list[str]]:
+            return [], ["no topic found in query"]
+
         (terms, w_terms), (dt, w_dt), (bbox, w_bbox) = await asyncio.gather(
-            _expand(llm, decomposed.topic, settings.max_expansion_terms),
+            _expand(llm, decomposed.topic, settings.max_expansion_terms)
+            if decomposed.topic
+            else _no_terms(),
             _resolve_datetime(llm, decomposed),
             _resolve_bbox(geocoder, decomposed, settings.geocoding_timeout),
         )

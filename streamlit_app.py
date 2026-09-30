@@ -38,8 +38,10 @@ def self_ref(collection: dict) -> str:
     return collection["id"]
 
 
-def fetch_term(term: str, plan: dict) -> list[dict]:
-    params = {"q": term, "limit": page_size}
+def fetch_term(term: str | None, plan: dict) -> list[dict]:
+    params: dict = {"limit": page_size}
+    if term is not None:
+        params["q"] = term
     if plan["bbox"]:
         params["bbox"] = ",".join(str(c) for c in plan["bbox"])
     if plan["datetime"]:
@@ -70,15 +72,17 @@ def run_search(nl_query: str) -> dict:
     r.raise_for_status()
     plan = r.json()
 
+    # No topic: one plain search without `q` (bbox/datetime only)
+    terms = plan["q"] or [None]
     with ThreadPoolExecutor() as pool:
-        per_term = list(pool.map(lambda t: fetch_term(t, plan), plan["q"]))
+        per_term = list(pool.map(lambda t: fetch_term(t, plan), terms))
 
     merged: dict[str, dict] = {}
-    for term, collections in zip(plan["q"], per_term, strict=True):
+    for term, collections in zip(terms, per_term, strict=True):
         for c in collections:
             ref = self_ref(c)
             entry = merged.setdefault(ref, {"collection": c, "terms": []})
-            if term not in entry["terms"]:
+            if term is not None and term not in entry["terms"]:
                 entry["terms"].append(term)
 
     candidates = sorted(merged.items(), key=lambda kv: -len(kv[1]["terms"]))

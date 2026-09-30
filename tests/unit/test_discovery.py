@@ -333,3 +333,52 @@ def test_discovery_links_are_post_links_under_base_url():
         "http://localhost:8080/discovery/rank",
     }
     assert all(link["method"] == "POST" for link in links)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"topic": ["fire"], "location": None, "date_expression": None},
+        {"topic": 42, "location": None, "date_expression": None},
+        {"topic": "fire", "location": ["California"], "date_expression": None},
+        {"topic": "fire", "location": 7, "date_expression": None},
+        {"topic": "fire", "location": None, "date_expression": ["2023"]},
+        {"topic": "fire", "location": None, "date_expression": 2023},
+    ],
+)
+def test_interpret_non_string_decomposer_fields_never_500(make_stub_llm, fields):
+    routes = {DECOMPOSE: fields, EXPAND: ["burned area"], DATE: {"error": "x"}}
+    r = make_client(make_stub_llm(routes)).post(
+        "/discovery/interpret", json={"query": "q"}
+    )
+    assert r.status_code == 200
+    assert all(isinstance(t, str) for t in r.json()["q"])
+
+
+def test_interpret_without_topic_returns_empty_q_but_resolves_bbox_and_datetime(
+    make_stub_llm,
+):
+    routes = {
+        DECOMPOSE: {"topic": None, "location": "California", "date_expression": "2023"},
+        DATE: {"start": "2023-01-01", "end": "2023-12-31"},
+    }
+    stub = make_stub_llm(routes)
+    with respx.mock:
+        respx.get(f"{GEO}/search").mock(return_value=httpx.Response(200, json=CALIFORNIA))
+        client = make_client(stub, geocoding_service_url=GEO)
+        r = client.post("/discovery/interpret", json={"query": "California 2023"})
+    body = r.json()
+    assert r.status_code == 200
+    assert body["q"] == []
+    assert body["bbox"] == [-124.4, 32.5, -114.1, 42.0]
+    assert body["datetime"] is not None
+    assert any("no topic" in w for w in body["warnings"])
+    assert not any(EXPAND in (c["system"] or "") for c in stub.calls)
+
+
+def test_interpret_blank_topic_is_treated_as_no_topic(make_stub_llm):
+    routes = {DECOMPOSE: {"topic": "   ", "location": None, "date_expression": None}}
+    r = make_client(make_stub_llm(routes)).post(
+        "/discovery/interpret", json={"query": "q"}
+    )
+    assert r.json()["q"] == [] and any("no topic" in w for w in r.json()["warnings"])
