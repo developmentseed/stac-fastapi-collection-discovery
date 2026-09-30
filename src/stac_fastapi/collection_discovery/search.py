@@ -37,8 +37,8 @@ class CollectionMatch:
     source_api: str
     """Upstream API base URL that returned this collection."""
 
-    matched_term: str | None
-    """The search term that surfaced this collection (None if unfiltered)."""
+    matched_terms: list[str] = field(default_factory=list)
+    """All search terms that surfaced this collection (empty if unfiltered)."""
 
 
 @dataclass
@@ -128,7 +128,7 @@ async def federated_collection_search(
         )
 
     result = FederatedSearchResult()
-    seen: set[tuple[str, str]] = set()
+    index: dict[tuple[str, str], CollectionMatch] = {}
 
     for api, term, collections, error in responses:
         if error:
@@ -139,17 +139,23 @@ async def federated_collection_search(
         )
         for c in collections:
             key = (api, c.get("id", ""))
-            if key in seen:
+            if key in index:
+                if term and term not in index[key].matched_terms:
+                    index[key].matched_terms.append(term)
                 continue
-            seen.add(key)
-            c["_source_api"] = api
-            c["_matched_term"] = term
-            result.matches.append(
-                CollectionMatch(
-                    collection=c,
-                    source_api=api,
-                    matched_term=term,
-                )
+            match = CollectionMatch(
+                collection=c,
+                source_api=api,
+                matched_terms=[term] if term else [],
             )
+            index[key] = match
+            c["_source_api"] = api
+            c["_matched_terms"] = match.matched_terms
+            result.matches.append(match)
+
+    # Order by term-coverage: collections matching more expanded terms
+    # are likelier to be relevant; stable sort preserves (api, term)
+    # arrival order for ties
+    result.matches.sort(key=lambda m: -len(m.matched_terms))
 
     return result

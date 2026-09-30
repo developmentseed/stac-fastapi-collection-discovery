@@ -29,8 +29,8 @@ class RankedCollection:
     source_api: str | None = None
     """Upstream API the collection came from (provenance)."""
 
-    matched_term: str | None = None
-    """Search term that surfaced this collection (provenance)."""
+    matched_terms: list[str] | None = None
+    """All search terms that surfaced this collection (provenance)."""
 
 
 @dataclass
@@ -85,7 +85,7 @@ class CollectionReranker:
         Args:
             query: The original natural language user query
             collections: Candidate collections (dicts); provenance keys
-                ``_source_api`` and ``_matched_term`` are carried through
+                ``_source_api`` and ``_matched_terms`` are carried through
             max_candidates: Cap on candidates sent to the LLM
             top_k: Number of results to return after ranking
 
@@ -147,7 +147,7 @@ class CollectionReranker:
                             score=r.get("score"),
                             reason=r.get("reason"),
                             source_api=c.get("_source_api"),
-                            matched_term=c.get("_matched_term"),
+                            matched_terms=c.get("_matched_terms"),
                         )
                     )
 
@@ -178,7 +178,7 @@ class CollectionReranker:
                         score=None,
                         reason="not ranked by the LLM reranker",
                         source_api=c.get("_source_api"),
-                        matched_term=c.get("_matched_term"),
+                        matched_terms=c.get("_matched_terms"),
                     )
                     for c in candidates[:top_k]
                 ],

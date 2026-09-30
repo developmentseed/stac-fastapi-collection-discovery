@@ -49,7 +49,8 @@ def print_result(result) -> None:
         source = (m.source_api or "").replace("https://", "").split("/")[0]
         score = f"{m.score}/10" if m.score is not None else "-"
         print(f"  {i}. [{source}] {title[:58]}")
-        print(f"      score={score}  via '{m.matched_term}'  {m.reason or ''}")
+        terms = ", ".join(m.matched_terms or [])
+        print(f"      score={score}  via [{terms}]  {m.reason or ''}")
 
 
 async def main():

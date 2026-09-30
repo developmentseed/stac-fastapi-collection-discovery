@@ -101,8 +101,9 @@ for i, coll in enumerate(collections, 1):
     with st.expander(label, expanded=i <= 3):
         if info.get("reason"):
             st.write(info["reason"])
+        terms = info.get("matched_terms") or []
         st.caption(
             f"source: {info.get('source_api', '—')} · "
-            f"matched term: `{info.get('matched_term', '—')}`"
+            f"matched terms: {' '.join(f'`{t}`' for t in terms) or '—'}"
         )
         st.json(coll, expanded=False)

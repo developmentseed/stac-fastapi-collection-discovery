@@ -451,7 +451,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                 "score": match.score,
                 "reason": match.reason,
                 "source_api": match.source_api,
-                "matched_term": match.matched_term,
+                "matched_terms": match.matched_terms,
             }
             collections.append(c)
 
