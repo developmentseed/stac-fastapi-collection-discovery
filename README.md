@@ -45,7 +45,10 @@ This will bring the API up at `http://localhost:8000` and a STAC Browser instanc
 
 When `LLM_PROVIDER` and `LLM_API_KEY` are configured (and, for place names,
 `GEOCODING_SERVICE_URL`), two helper endpoints are available. They are stateless;
-the client performs the search itself:
+the client performs the search itself. The provider SDKs are an optional extra:
+install them with `uv sync --extra llm` (or
+`pip install "stac-fastapi-collection-discovery[llm]"`); the Docker image already
+includes them.
 
 1. `POST /discovery/interpret` with `{"query": "wildfires in California 2023"}`
    returns `{"q": [...], "bbox": [...], "datetime": "...", "warnings": []}`.
@@ -53,8 +56,10 @@ the client performs the search itself:
    following `next` links for more. Merge the results, keeping each collection's
    `self` link as its `ref` and the list of terms that returned it as `matched_terms`.
 3. `POST /discovery/rank` with the original query and the merged candidates
-   (`{"ref", "id", "title", "matched_terms"}`, at most 200) returns them best first
-   with a `score` (0-10) and a plain-text `reason`. Candidates beyond the first 50
-   by term coverage are returned after the scored ones with `score: null`.
+   (`{"ref", "id", "title", "matched_terms"}`; at most
+   `RERANK_MAX_REQUEST_CANDIDATES`, default 200) returns them best first
+   with a `score` (0-10) and a plain-text `reason`. The top
+   `RERANK_CANDIDATE_COUNT` (default 50) candidates by term coverage are scored; the
+   rest are returned after the scored ones with `score: null`.
 
 See `streamlit_app.py` for a complete reference client.
