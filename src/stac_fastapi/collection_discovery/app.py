@@ -82,6 +82,8 @@ position across all upstream APIs.
 
 - Free-text search: `GET /collections?q=landsat,sentinel`
 
+- Natural-language (LLM-assisted): `GET /collections?query=wildfires in California 2023`
+
 - Filtered search: `GET /collections?filter=mission='sentinel-2'&filter-lang=cql2-text`
 
 - Paginated search: `GET /collections?token=eyJ...`
@@ -101,6 +103,17 @@ class FederatedApisGetRequest(APIRequest):
         Optional[List[str]],
         Query(
             description="List of STAC APIs to include in the search. Can be provided as multiple query parameters (?apis=url1&apis=url2) or as a comma-separated string (?apis=url1,url2)"  # noqa: E501
+        ),
+    ] = attr.ib(default=None)
+
+    query: Annotated[
+        Optional[str],
+        Query(
+            description="Natural language search query (e.g. 'wildfires in "
+            "California 2023'). When provided, an LLM decomposes it into "
+            "topic/location/date, expands the topic into related search terms, "
+            "and re-ranks results by relevance. Explicit q/bbox/datetime params "
+            "override LLM-derived values. Requires LLM_PROVIDER and LLM_API_KEY."
         ),
     ] = attr.ib(default=None)
 
@@ -208,12 +221,18 @@ class StacCollectionSearchApi(StacApi):
         to inject X-Failed-Upstream-Apis header."""
 
         async def get_collections(request: Request, **kwargs) -> JSONResponse:
-            """Custom collections endpoint that injects failure header."""
+            """Custom collections endpoint that injects failure header and
+            assisted-search metadata."""
             result = await self.client.all_collections(request=request, **kwargs)
             body = result.collections
             headers = {}
             if result.failed_apis:
                 headers["X-Failed-Upstream-Apis"] = ",".join(result.failed_apis)
+
+            if result.metadata:
+                # Collections is a TypedDict (plain dict) - copy and extend
+                body = dict(result.collections)
+                body["search_metadata"] = result.metadata
 
             return JSONResponse(content=body, headers=headers)
 
