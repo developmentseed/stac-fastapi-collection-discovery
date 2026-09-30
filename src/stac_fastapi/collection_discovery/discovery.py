@@ -82,7 +82,11 @@ def get_geocoder(request: Request) -> Geocoder | None:
 async def _expand(
     llm: LLMClient, topic: str, max_terms: int
 ) -> tuple[list[str], list[str]]:
-    result = await QueryExpander(llm).expand(topic, max_terms=max_terms)
+    try:
+        result = await QueryExpander(llm).expand(topic, max_terms=max_terms)
+    except Exception:
+        logger.exception("query expansion failed unexpectedly")
+        return [topic], ["expansion failed"]
     warnings = [f"expansion: {result.error}"] if result.error else []
     return result.terms, warnings
 
@@ -92,10 +96,14 @@ async def _resolve_datetime(
 ) -> tuple[str | None, list[str]]:
     if not decomposed.date_expression:
         return None, []
-    result = await DateParser(llm).parse(decomposed.date_expression)
-    if not result.success:
-        return None, [f"date parsing: {result.error}"]
-    return to_rfc3339_interval(result.datetime_range), []  # type: ignore[arg-type]
+    try:
+        result = await DateParser(llm).parse(decomposed.date_expression)
+        if not result.success:
+            return None, [f"date parsing: {result.error}"]
+        return to_rfc3339_interval(result.datetime_range), []  # type: ignore[arg-type]
+    except Exception:
+        logger.exception("date parsing failed unexpectedly")
+        return None, ["date parsing failed"]
 
 
 async def _resolve_bbox(
@@ -107,7 +115,11 @@ async def _resolve_bbox(
         return None, [
             f"geocoding is not configured; could not resolve '{decomposed.location}'"
         ]
-    result = await geocoder.geocode(decomposed.location, timeout=timeout)
+    try:
+        result = await geocoder.geocode(decomposed.location, timeout=timeout)
+    except Exception:
+        logger.exception("geocoding failed unexpectedly")
+        return None, [f"geocoding failed for '{decomposed.location}'"]
     if result is None:
         return None, [f"geocoding failed for '{decomposed.location}'"]
     return result.bbox, []

@@ -152,3 +152,31 @@ def test_interpret_rejects_unknown_fields(make_stub_llm):
         "/discovery/interpret", json={"query": "q", "extra": 1}
     )
     assert r.status_code == 422
+
+
+@respx.mock
+def test_interpret_geocoder_result_with_non_dict_geojson_is_a_warning(make_stub_llm):
+    bad = [
+        {
+            "boundingbox": ["1", "2", "3", "4"],
+            "display_name": "X",
+            "geojson": "a string",
+        }
+    ]
+    respx.get(f"{GEO}/search").mock(return_value=httpx.Response(200, json=bad))
+    client = make_client(make_stub_llm(FULL_ROUTES), geocoding_service_url=GEO)
+    r = client.post("/discovery/interpret", json={"query": "q"})
+    assert r.status_code == 200
+    assert r.json()["bbox"] is None
+    assert any("California" in w for w in r.json()["warnings"])
+
+
+@pytest.mark.parametrize("date_reply", [[1, 2], {"start": 2023, "end": 2024}])
+def test_interpret_malformed_date_output_is_a_warning_not_500(make_stub_llm, date_reply):
+    routes = {**FULL_ROUTES, DATE: date_reply}
+    r = make_client(make_stub_llm(routes)).post(
+        "/discovery/interpret", json={"query": "q"}
+    )
+    assert r.status_code == 200
+    assert r.json()["datetime"] is None
+    assert any("date" in w for w in r.json()["warnings"])
