@@ -108,16 +108,13 @@ class QueryExpander:
                 # Accept the first value that is a list of strings - the
                 # model may use any key (terms, related_search_terms, etc.)
                 for value in parsed.values():
-                    if isinstance(value, list) and all(
-                        isinstance(t, str) for t in value
-                    ):
+                    if isinstance(value, list) and all(isinstance(t, str) for t in value):
                         raw_terms = value
                         break
 
             if not raw_terms:
                 logger.warning(
-                    f"No expansion terms parsed for '{topic}': "
-                    f"{response.content[:200]}"
+                    f"No expansion terms parsed for '{topic}': {response.content[:200]}"
                 )
 
             # Sanitize and drop the original topic from expansions
