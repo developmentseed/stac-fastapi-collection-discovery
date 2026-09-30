@@ -442,3 +442,24 @@ def test_misconfigured_llm_detail_is_fixed_text():
     r = TestClient(app).post("/discovery/interpret", json={"query": "q"})
     assert r.status_code == 503
     assert r.json()["detail"] == "LLM is not available or not configured"
+
+
+@pytest.mark.parametrize(
+    "field", ["rerank_candidate_count", "rerank_max_request_candidates"]
+)
+def test_rerank_settings_must_be_positive(field):
+    with pytest.raises(ValueError):
+        Settings(**{field: 0})
+
+
+def test_rank_duplicate_refs_detail_is_bounded(make_stub_llm):
+    ids = [f"dup{i}-" + "x" * 200 for i in range(8)]
+    body = {"query": "q", "candidates": [{"id": i} for i in ids for _ in range(2)]}
+    r = make_client(make_stub_llm({RERANK: {"ranked": []}})).post(
+        "/discovery/rank", json=body
+    )
+    detail = r.json()["detail"]
+    assert r.status_code == 422
+    assert "8" in detail
+    assert "dup4-" in detail and "dup5-" not in detail  # first 5 only (sorted)
+    assert "x" * 101 not in detail

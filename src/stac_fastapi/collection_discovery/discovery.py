@@ -279,7 +279,9 @@ def build_discovery_router() -> APIRouter:
         if duplicates:
             raise HTTPException(
                 status_code=422,
-                detail=f"Duplicate candidate refs: {duplicates}. Supply a unique "
+                detail=f"{len(duplicates)} duplicate candidate ref(s), "
+                f"first {min(len(duplicates), 5)}: "
+                f"{[d[:100] for d in duplicates[:5]]}. Supply a unique "
                 "`ref` per candidate (e.g. the collection's self link).",
             )
 

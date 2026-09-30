@@ -44,11 +44,13 @@ class Settings(ApiSettings):
     )
     rerank_candidate_count: int = Field(
         default=50,
+        ge=1,
         description="Number of top candidates (by term coverage) the LLM scores "
         "per POST /discovery/rank request",
     )
     rerank_max_request_candidates: int = Field(
         default=200,
+        ge=1,
         description="Maximum candidates accepted by POST /discovery/rank; "
         "larger requests are rejected with 422",
     )
