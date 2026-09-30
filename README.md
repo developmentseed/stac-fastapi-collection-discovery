@@ -40,3 +40,21 @@ docker compose up
 ```
 
 This will bring the API up at `http://localhost:8000` and a STAC Browser instance at `http://localhost:8080`.
+
+## LLM-assisted search
+
+When `LLM_PROVIDER` and `LLM_API_KEY` are configured (and, for place names,
+`GEOCODING_SERVICE_URL`), two helper endpoints are available. They are stateless;
+the client performs the search itself:
+
+1. `POST /discovery/interpret` with `{"query": "wildfires in California 2023"}`
+   returns `{"q": [...], "bbox": [...], "datetime": "...", "warnings": []}`.
+2. For each term in `q`, `GET /collections?q=<term>&bbox=...&datetime=...&limit=100`,
+   following `next` links for more. Merge the results, keeping each collection's
+   `self` link as its `ref` and the list of terms that returned it as `matched_terms`.
+3. `POST /discovery/rank` with the original query and the merged candidates
+   (`{"ref", "id", "title", "matched_terms"}`, at most 200) returns them best first
+   with a `score` (0-10) and a plain-text `reason`. Candidates beyond the first 50
+   by term coverage are returned after the scored ones with `score: null`.
+
+See `streamlit_app.py` for a complete reference client.

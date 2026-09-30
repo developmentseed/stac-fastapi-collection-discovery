@@ -1,109 +1,138 @@
-"""Demo UI for the LLM-assisted collection search endpoint.
+"""Reference client for the LLM-assisted discovery flow.
 
-Run the API first:
+Run the API first (with LLM_PROVIDER / LLM_API_KEY / GEOCODING_SERVICE_URL set):
     uv run uvicorn stac_fastapi.collection_discovery.app:app --port 8765
 
 Then:
     uv run streamlit run streamlit_app.py
+
+Flow: interpret -> one GET /collections per term (paging via `next` links) ->
+merge and record matched terms -> rank -> display (paginated locally).
 """
+
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import streamlit as st
+
+MAX_RANK_CANDIDATES = 200  # server default rerank_max_request_candidates
 
 st.set_page_config(page_title="STAC Collection Discovery", layout="wide")
 st.title("Federated STAC Collection Discovery")
 
 with st.sidebar:
-    st.header("Settings")
-    api_base = st.text_input("API base URL", "http://localhost:8765")
-    limit = st.number_input("Results limit", min_value=1, max_value=50, value=10)
-    apis_text = st.text_area(
-        "Upstream APIs (optional, one per line)",
-        "",
-        help="Leave blank to use the server's configured upstream APIs.",
-    )
+    api_base = st.text_input("API base URL", "http://localhost:8765").rstrip("/")
+    page_size = st.number_input("Per-request page size", 10, 1000, 100)
+    max_pages = st.number_input("Max pages per term", 1, 20, 2)
+    per_page = st.number_input("Results per display page", 5, 50, 10)
+    apis_text = st.text_area("Upstream APIs (optional, one per line)", "")
 
-query = st.text_input(
-    "Natural language query",
-    "wildfires in California 2023",
-    placeholder="e.g. sea surface temperature in the Gulf of Mexico since 2020",
-)
-search = st.button("Search", type="primary")
+query = st.text_input("Natural language query", "wildfires in California 2023")
 
-if not (search or st.session_state.get("response")):
-    st.caption(
-        "Enter a query — the API decomposes it with an LLM, expands the topic, "
-        "federates across upstream catalogs, and re-ranks by relevance."
-    )
-    st.stop()
 
-if search:
-    params: dict = {"query": query, "limit": limit}
+def self_ref(collection: dict) -> str:
+    """Source-qualified ref: the collection's own self link, else its id."""
+    for link in collection.get("links", []):
+        if link.get("rel") == "self":
+            return link["href"]
+    return collection["id"]
+
+
+def fetch_term(term: str, plan: dict) -> list[dict]:
+    params = {"q": term, "limit": page_size}
+    if plan["bbox"]:
+        params["bbox"] = ",".join(str(c) for c in plan["bbox"])
+    if plan["datetime"]:
+        params["datetime"] = plan["datetime"]
     apis = [a.strip() for a in apis_text.splitlines() if a.strip()]
-    with st.spinner("Running assisted search (LLM + federated catalogs)..."):
-        try:
-            r = httpx.get(
-                f"{api_base}/collections",
-                params=[("apis", a) for a in apis] + list(params.items()),
-                timeout=120,
-            )
-            r.raise_for_status()
-            st.session_state["response"] = r.json()
-        except httpx.HTTPStatusError as e:
-            st.session_state["response"] = None
-            st.error(f"API error {e.response.status_code}: {e.response.text}")
-        except httpx.HTTPError as e:
-            st.session_state["response"] = None
-            st.error(f"Request failed: {e}")
+    if apis:
+        params["apis"] = apis
+    found, url = [], f"{api_base}/collections"
+    for _ in range(int(max_pages)):
+        r = httpx.get(url, params=params, timeout=60)
+        r.raise_for_status()
+        body = r.json()
+        found.extend(body["collections"])
+        nxt = next(
+            (link["href"] for link in body.get("links", []) if link["rel"] == "next"),
+            None,
+        )
+        if not nxt:
+            break
+        url, params = nxt, None  # next links carry all parameters
+    return found
 
-data = st.session_state.get("response")
-if not data:
+
+def run_search(nl_query: str) -> dict:
+    r = httpx.post(
+        f"{api_base}/discovery/interpret", json={"query": nl_query}, timeout=60
+    )
+    r.raise_for_status()
+    plan = r.json()
+
+    with ThreadPoolExecutor() as pool:
+        per_term = list(pool.map(lambda t: fetch_term(t, plan), plan["q"]))
+
+    merged: dict[str, dict] = {}
+    for term, collections in zip(plan["q"], per_term, strict=True):
+        for c in collections:
+            ref = self_ref(c)
+            entry = merged.setdefault(ref, {"collection": c, "terms": []})
+            if term not in entry["terms"]:
+                entry["terms"].append(term)
+
+    candidates = sorted(merged.items(), key=lambda kv: -len(kv[1]["terms"]))
+    candidates = candidates[:MAX_RANK_CANDIDATES]
+    r = httpx.post(
+        f"{api_base}/discovery/rank",
+        json={
+            "query": nl_query,
+            "candidates": [
+                {
+                    "ref": ref,
+                    "id": e["collection"]["id"],
+                    "title": e["collection"].get("title"),
+                    "matched_terms": e["terms"],
+                }
+                for ref, e in candidates
+            ],
+        },
+        timeout=120,
+    )
+    r.raise_for_status()
+    ranking = r.json()
+    return {
+        "plan": plan,
+        "warnings": plan["warnings"] + ranking["warnings"],
+        "results": [
+            {**merged[item["ref"]], "score": item["score"], "reason": item["reason"]}
+            for item in ranking["ranked"]
+        ],
+    }
+
+
+if st.button("Search", type="primary"):
+    with st.spinner("Interpreting, searching and ranking..."):
+        st.session_state["search"] = run_search(query)
+        st.session_state["page"] = 1
+
+search = st.session_state.get("search")
+if not search:
+    st.caption("Enter a query and press Search.")
     st.stop()
 
-# --- Pipeline trace ---
-meta = data.get("search_metadata") or {}
-if meta:
-    place = meta.get("resolved_place") or meta.get("location") or "—"
-    st.caption(
-        f"**{meta.get('topic') or '—'}** · {place} · "
-        f"{meta.get('datetime_range') or '—'} · "
-        f"{meta.get('total_time_ms', 0) / 1000:.1f}s · "
-        f"{meta.get('candidate_count', 0)} candidates -> "
-        f"{len(data.get('collections') or [])} ranked"
-    )
+plan = search["plan"]
+st.caption(f"q={plan['q']}  bbox={plan['bbox']}  datetime={plan['datetime']}")
+for warning in search["warnings"]:
+    st.warning(warning)
 
-    terms = meta.get("expanded_terms") or []
-    if terms:
-        st.caption("expanded: " + " · ".join(f"`{t}`" for t in terms))
-
-    counts = meta.get("per_api_counts") or {}
-    if counts:
-        st.caption(
-            "per-API: "
-            + " · ".join(f"{api.split('/')[2]}: {n}" for api, n in counts.items())
-        )
-
-    for err in meta.get("errors") or []:
-        st.warning(err)
-
-# --- Results ---
-collections = data.get("collections") or []
-st.subheader(f"Ranked results ({len(collections)})")
-
-for i, coll in enumerate(collections, 1):
-    info = coll.get("assisted_search") or {}
-    title = coll.get("title") or coll.get("id", "(untitled)")
-    score = info.get("score")
-    label = f"{i}. {title}"
-    if score is not None:
-        label += f"  —  score {score}/10"
-
-    with st.expander(label, expanded=i <= 3):
-        if info.get("reason"):
-            st.write(info["reason"])
-        terms = info.get("matched_terms") or []
-        st.caption(
-            f"source: {info.get('source_api', '—')} · "
-            f"matched terms: {' '.join(f'`{t}`' for t in terms) or '—'}"
-        )
-        st.json(coll, expanded=False)
+results = search["results"]
+pages = max(1, -(-len(results) // int(per_page)))
+page = st.number_input("Page", 1, pages, key="page")
+start = (int(page) - 1) * int(per_page)
+for item in results[start : start + int(per_page)]:
+    c = item["collection"]
+    score = "unscored" if item["score"] is None else f"{item['score']:.1f}/10"
+    st.subheader(f"{c.get('title') or c['id']}  ·  {score}")
+    st.caption(f"{item['reason'] or ''}  |  matched: {', '.join(item['terms'])}")
+    st.write((c.get("description") or "")[:400])
