@@ -425,3 +425,18 @@ def test_collections_has_no_llm_query_param(test_app):
     """GET /collections must not expose the prototype `query` mode."""
     params = test_app.openapi()["paths"]["/collections"]["get"]["parameters"]
     assert "query" not in {p["name"] for p in params}
+
+
+def test_discovery_routes_absent_without_llm(test_app):
+    paths = {r.path for r in test_app.routes}
+    assert "/discovery/interpret" not in paths
+    assert "/discovery/rank" not in paths
+
+
+def test_discovery_routes_present_with_llm(llm_test_app):
+    paths = {r.path for r in llm_test_app.routes}
+    assert {"/discovery/interpret", "/discovery/rank"} <= paths
+
+
+def test_discovery_route_404s_without_llm(client):
+    assert client.post("/discovery/interpret", json={"query": "q"}).status_code == 404

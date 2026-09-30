@@ -32,6 +32,11 @@ from stac_fastapi.collection_discovery.core import (
     CollectionSearchClient,
     health_check,
 )
+from stac_fastapi.collection_discovery.discovery import (
+    build_discovery_router,
+    discovery_conformance_classes,
+    discovery_enabled,
+)
 from stac_fastapi.collection_discovery.settings import Settings
 
 # Configure logging
@@ -55,6 +60,13 @@ This API has been pre-configured to search this set of upstream STAC APIs by def
 Users can override this configuration for individual requests by providing their own list
 of APIs using the `apis` query parameter, either as multiple parameters
 (`?apis=url1&apis=url2`) or as a comma-separated string (`?apis=url1,url2`).
+
+## LLM-assisted search
+
+When `LLM_PROVIDER` and `LLM_API_KEY` are configured, two helper endpoints are
+available: `POST /discovery/interpret` turns a natural-language query into
+suggested `q`, `bbox` and `datetime` parameters, and `POST /discovery/rank`
+orders candidate collections by relevance to the original query.
 
 ## Conformance Classes
 
@@ -151,6 +163,13 @@ class StacCollectionSearchApi(StacApi):
         self.register_landing_page()
         self.register_conformance_classes()
         self.register_get_collections()
+        if discovery_enabled(self.settings):
+            self.register_discovery()
+
+    def register_discovery(self) -> None:
+        """Register POST /discovery/interpret and /discovery/rank (LLM-assisted
+        search). Only called when an LLM provider and API key are configured."""
+        self.router.include_router(build_discovery_router(), tags=["LLM-assisted search"])
 
     def register_landing_page(self) -> None:
         """Register landing page (GET /) with the apis parameter enabled."""
@@ -306,6 +325,7 @@ api = StacCollectionSearchApi(
     extensions=cs_extensions,
     client=CollectionSearchClient(
         base_conformance_classes=COLLECTION_SEARCH_CONFORMANCE_CLASSES
+        + discovery_conformance_classes(settings)
     ),
     settings=settings,
     collections_get_request_model=collections_get_request_model,  # type: ignore[arg-type]

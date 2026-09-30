@@ -34,6 +34,42 @@ from stac_fastapi.collection_discovery.llm.reranker import (
 logger = logging.getLogger(__name__)
 
 MAX_QUERY_LENGTH = 1000
+DISCOVERY_DOCS_BASE = "https://developmentseed.org/stac-fastapi-collection-discovery"
+# Must not contain "collection-search": core.conformance_classes intersects
+# every such class with the upstream APIs' and would drop ours.
+DISCOVERY_CONFORMANCE_CLASS = f"{DISCOVERY_DOCS_BASE}/conformance/discovery/v1"
+DISCOVERY_INTERPRET_REL = f"{DISCOVERY_DOCS_BASE}/rel/discovery-interpret"
+DISCOVERY_RANK_REL = f"{DISCOVERY_DOCS_BASE}/rel/discovery-rank"
+
+
+def discovery_enabled(settings) -> bool:
+    """Discovery endpoints exist only when an LLM provider and key are set."""
+    return bool(settings.llm_provider and settings.llm_api_key)
+
+
+def discovery_conformance_classes(settings) -> list[str]:
+    return [DISCOVERY_CONFORMANCE_CLASS] if discovery_enabled(settings) else []
+
+
+def discovery_links(base_url: str) -> list[dict]:
+    """Landing-page links advertising the discovery endpoints."""
+    base = base_url if base_url.endswith("/") else base_url + "/"
+    return [
+        {
+            "rel": DISCOVERY_INTERPRET_REL,
+            "type": "application/json",
+            "title": "Interpret a natural language query into q, bbox and datetime",
+            "href": f"{base}discovery/interpret",
+            "method": "POST",
+        },
+        {
+            "rel": DISCOVERY_RANK_REL,
+            "type": "application/json",
+            "title": "Rank candidate collections by relevance to a query",
+            "href": f"{base}discovery/rank",
+            "method": "POST",
+        },
+    ]
 
 
 class _QueryModel(BaseModel):

@@ -23,6 +23,11 @@ from stac_fastapi.types.stac import (
 from stac_pydantic.links import Relations
 from stac_pydantic.shared import BBox, MimeTypes
 
+from stac_fastapi.collection_discovery.discovery import (
+    discovery_enabled,
+    discovery_links,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -410,6 +415,10 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                     "method": "GET",
                 }
             )
+
+        # Advertise LLM-assisted discovery endpoints when enabled
+        if discovery_enabled(request.app.state.settings):
+            landing_page["links"].extend(discovery_links(base_url))
 
         # Add Aggregation links
         if self.extension_is_enabled("AggregationExtension"):

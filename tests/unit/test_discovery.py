@@ -301,3 +301,35 @@ def test_rank_rejects_blank_or_overlong_query(make_stub_llm, query):
         "/discovery/rank", json={"query": query, "candidates": [{"id": "a"}]}
     )
     assert r.status_code == 422
+
+
+from stac_fastapi.collection_discovery.discovery import (  # noqa: E402
+    DISCOVERY_CONFORMANCE_CLASS,
+    discovery_conformance_classes,
+    discovery_enabled,
+    discovery_links,
+)
+
+
+def test_discovery_enabled_requires_provider_and_key():
+    assert discovery_enabled(Settings(llm_provider="openai", llm_api_key="k"))
+    assert not discovery_enabled(Settings(llm_provider="openai"))
+    assert not discovery_enabled(Settings(llm_api_key="k"))
+    assert not discovery_enabled(Settings())
+
+
+def test_conformance_class_only_when_enabled_and_survives_intersection_filter():
+    assert discovery_conformance_classes(Settings()) == []
+    enabled = Settings(llm_provider="openai", llm_api_key="k")
+    assert discovery_conformance_classes(enabled) == [DISCOVERY_CONFORMANCE_CLASS]
+    # core.conformance_classes intersects any class containing this with upstreams
+    assert "collection-search" not in DISCOVERY_CONFORMANCE_CLASS
+
+
+def test_discovery_links_are_post_links_under_base_url():
+    links = discovery_links("http://localhost:8080/")
+    assert {link["href"] for link in links} == {
+        "http://localhost:8080/discovery/interpret",
+        "http://localhost:8080/discovery/rank",
+    }
+    assert all(link["method"] == "POST" for link in links)
