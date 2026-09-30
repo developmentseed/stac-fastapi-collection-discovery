@@ -27,6 +27,7 @@ from stac_fastapi.collection_discovery.llm.query_parser import (
     QueryDecomposer,
 )
 from stac_fastapi.collection_discovery.llm.reranker import (
+    NO_SCORES_ERROR,
     CollectionReranker,
     RankCandidate,
 )
@@ -135,7 +136,10 @@ def get_llm(request: Request) -> LLMClient:
     try:
         return LLMClient.from_settings(request.app.state.settings)
     except LLMConfigurationError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
+        logger.warning("LLM not available: %s", e)
+        raise HTTPException(
+            status_code=503, detail="LLM is not available or not configured"
+        ) from e
 
 
 def get_geocoder(request: Request) -> Geocoder | None:
@@ -159,8 +163,10 @@ async def _expand(
     except Exception:
         logger.exception("query expansion failed unexpectedly")
         return [topic], ["expansion failed"]
-    warnings = [f"expansion: {result.error}"] if result.error else []
-    return result.terms, warnings
+    if result.error:
+        logger.warning("query expansion failed: %s", result.error)
+        return result.terms, ["expansion failed"]
+    return result.terms, []
 
 
 async def _resolve_datetime(
@@ -171,7 +177,8 @@ async def _resolve_datetime(
     try:
         result = await DateParser(llm).parse(decomposed.date_expression)
         if not result.success:
-            return None, [f"date parsing: {result.error}"]
+            logger.warning("date parsing failed: %s", result.error)
+            return None, ["date parsing failed"]
         return to_rfc3339_interval(result.datetime_range), []  # type: ignore[arg-type]
     except Exception:
         logger.exception("date parsing failed unexpectedly")
@@ -222,9 +229,8 @@ def build_discovery_router() -> APIRouter:
 
         decomposed = await QueryDecomposer(llm).decompose(body.query)
         if decomposed.error:
-            raise HTTPException(
-                status_code=503, detail=f"LLM unavailable: {decomposed.error}"
-            )
+            logger.warning("query decomposition failed: %s", decomposed.error)
+            raise HTTPException(status_code=503, detail="LLM unavailable")
 
         async def _no_terms() -> tuple[list[str], list[str]]:
             return [], ["no topic found in query"]
@@ -286,13 +292,21 @@ def build_discovery_router() -> APIRouter:
             candidates,
             max_scored=settings.rerank_candidate_count,
         )
+        warnings: list[str] = []
+        if result.error:
+            logger.warning("rerank failed: %s", result.error)
+            warnings = [
+                "rerank: LLM returned no usable scores"
+                if result.error == NO_SCORES_ERROR
+                else "rerank: LLM call failed"
+            ]
         return RankResponse(
             ranked=[
                 RankedOut(ref=r.ref, score=r.score, reason=r.reason)
                 for r in result.ranked
             ],
             unscored_count=result.unscored_count,
-            warnings=[f"rerank: {result.error}"] if result.error else [],
+            warnings=warnings,
         )
 
     return router

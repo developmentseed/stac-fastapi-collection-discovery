@@ -111,6 +111,7 @@ class LLMClient:
         model: str,
         max_retries: int = 3,
         base_retry_delay: float = 1.0,
+        timeout: float = 30.0,
     ):
         """Initialize the LLM client.
 
@@ -120,11 +121,13 @@ class LLMClient:
             model: Model name to use
             max_retries: Maximum number of retries on rate limit errors
             base_retry_delay: Base delay in seconds for exponential backoff
+            timeout: Per-request timeout in seconds for the provider SDK
         """
         self.provider = provider
         self.model = model
         self._max_retries = max_retries
         self._base_retry_delay = base_retry_delay
+        self._timeout = timeout
 
         # Lazy-load provider clients to avoid import errors when deps not installed
         self._openai_client: Any = None
@@ -146,7 +149,9 @@ class LLMClient:
                 "OpenAI package not installed. Install with: uv sync --extra llm"
             ) from e
 
-        self._openai_client = AsyncOpenAI(api_key=api_key)
+        self._openai_client = AsyncOpenAI(
+            api_key=api_key, timeout=self._timeout, max_retries=1
+        )
 
     def _init_anthropic(self, api_key: str) -> None:
         """Initialize Anthropic client."""
@@ -157,7 +162,9 @@ class LLMClient:
                 "Anthropic package not installed. Install with: uv sync --extra llm"
             ) from e
 
-        self._anthropic_client = AsyncAnthropic(api_key=api_key)
+        self._anthropic_client = AsyncAnthropic(
+            api_key=api_key, timeout=self._timeout, max_retries=1
+        )
 
     @classmethod
     def from_settings(cls, settings: "Settings") -> "LLMClient":
@@ -186,6 +193,7 @@ class LLMClient:
             provider=settings.llm_provider,
             api_key=settings.llm_api_key,
             model=settings.llm_model,
+            timeout=settings.llm_timeout,
         )
 
     async def generate(
@@ -247,7 +255,9 @@ class LLMClient:
                 if attempt == self._max_retries:
                     raise
 
-                delay = e.retry_after or (self._base_retry_delay * (2**attempt))
+                delay = min(
+                    e.retry_after or (self._base_retry_delay * (2**attempt)), 30.0
+                )
                 logger.warning(
                     f"Rate limited by {self.provider}, retrying in {delay:.1f}s "
                     f"(attempt {attempt + 1}/{self._max_retries})"

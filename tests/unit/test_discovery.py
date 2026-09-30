@@ -98,7 +98,8 @@ def test_interpret_date_parse_failure_is_a_warning(make_stub_llm):
     client = make_client(make_stub_llm(routes))
     body = client.post("/discovery/interpret", json={"query": "q"}).json()
     assert body["datetime"] is None
-    assert any("date" in w for w in body["warnings"])
+    assert "date parsing failed" in body["warnings"]
+    assert "cannot parse" not in str(body)
 
 
 def test_interpret_unparseable_expansion_keeps_topic_only(make_stub_llm):
@@ -128,7 +129,7 @@ def test_interpret_respects_max_expansion_terms(make_stub_llm):
 def test_interpret_llm_error_is_503(make_stub_llm):
     client = make_client(make_stub_llm({}, error=LLMError("down")))
     r = client.post("/discovery/interpret", json={"query": "q"})
-    assert r.status_code == 503 and "LLM" in r.json()["detail"]
+    assert r.status_code == 503 and r.json()["detail"] == "LLM unavailable"
 
 
 def test_interpret_llm_misconfigured_is_503():
@@ -286,7 +287,7 @@ def test_rank_llm_failure_returns_200_unscored_with_warning(make_stub_llm):
     assert r.status_code == 200
     assert [x["score"] for x in r.json()["ranked"]] == [None, None]
     assert r.json()["unscored_count"] == 2
-    assert r.json()["warnings"] == ["rerank: LLM error: down"]
+    assert r.json()["warnings"] == ["rerank: LLM call failed"]
 
 
 def test_rank_llm_misconfigured_is_503():
@@ -392,3 +393,52 @@ def test_rank_non_json_reply_is_200_unscored_with_rerank_warning(make_stub_llm):
     assert [x["score"] for x in r.json()["ranked"]] == [None, None]
     assert r.json()["unscored_count"] == 2
     assert any(w.startswith("rerank:") for w in r.json()["warnings"])
+
+
+SECRET = "sk-secret"
+
+
+def test_interpret_decompose_error_text_is_not_leaked(make_stub_llm):
+    client = make_client(make_stub_llm({}, error=LLMError(f"bad key {SECRET}")))
+    r = client.post("/discovery/interpret", json={"query": "q"})
+    assert r.status_code == 503 and SECRET not in r.text
+
+
+def test_interpret_component_error_text_is_not_leaked(make_stub_llm):
+    class Stub:
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def generate(self, prompt, system=None, **kw):
+            if EXPAND in (system or "") or DATE in (system or ""):
+                raise LLMError(f"bad key {SECRET}")
+            return await self.inner.generate(prompt, system=system, **kw)
+
+    inner = make_stub_llm(FULL_ROUTES)
+    r = make_client(Stub(inner)).post("/discovery/interpret", json={"query": "q"})
+    assert r.status_code == 200 and SECRET not in r.text
+    assert "expansion failed" in r.json()["warnings"]
+    assert "date parsing failed" in r.json()["warnings"]
+
+
+def test_rank_error_text_is_not_leaked(make_stub_llm):
+    stub = make_stub_llm({}, error=LLMError(f"bad key {SECRET}"))
+    r = make_client(stub).post("/discovery/rank", json=rank_body("a"))
+    assert r.status_code == 200 and SECRET not in r.text
+    assert r.json()["warnings"] == ["rerank: LLM call failed"]
+
+
+def test_rank_no_usable_scores_warning_is_fixed_text(make_stub_llm):
+    r = make_client(make_stub_llm({RERANK: "not json"})).post(
+        "/discovery/rank", json=rank_body("a")
+    )
+    assert r.json()["warnings"] == ["rerank: LLM returned no usable scores"]
+
+
+def test_misconfigured_llm_detail_is_fixed_text():
+    app = FastAPI()
+    app.state.settings = Settings()
+    app.include_router(build_discovery_router())
+    r = TestClient(app).post("/discovery/interpret", json={"query": "q"})
+    assert r.status_code == 503
+    assert r.json()["detail"] == "LLM is not available or not configured"

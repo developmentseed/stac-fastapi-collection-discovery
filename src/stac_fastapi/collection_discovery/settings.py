@@ -31,6 +31,12 @@ class Settings(ApiSettings):
         description="Model name (e.g., 'gpt-4o-mini', 'claude-sonnet-4-20250514')",
     )
 
+    llm_timeout: float = Field(
+        default=30.0,
+        gt=0,
+        description="Timeout in seconds for each LLM provider request",
+    )
+
     # LLM Tuning Parameters
     max_expansion_terms: int = Field(
         default=10,
