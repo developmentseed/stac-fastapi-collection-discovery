@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import streamlit as st
 
-MAX_RANK_CANDIDATES = 200  # server default rerank_max_request_candidates
+MAX_RANK_CANDIDATES = 200  # server default discovery_max_candidates
 
 st.set_page_config(page_title="STAC Collection Discovery", layout="wide")
 st.title("Federated STAC Collection Discovery")
@@ -25,6 +25,8 @@ with st.sidebar:
     page_size = st.number_input("Per-request page size", 10, 1000, 100)
     max_pages = st.number_input("Max pages per term", 1, 20, 2)
     per_page = st.number_input("Results per display page", 5, 50, 10)
+    max_terms = st.number_input("Max terms", min_value=1, value=10)
+    max_scored = st.number_input("Max scored", min_value=1, value=50)
     apis_text = st.text_area("Upstream APIs (optional, one per line)", "")
 
 query = st.text_input("Natural language query", "wildfires in California 2023")
@@ -67,7 +69,9 @@ def fetch_term(term: str | None, plan: dict) -> list[dict]:
 
 def run_search(nl_query: str) -> dict:
     r = httpx.post(
-        f"{api_base}/discovery/interpret", json={"query": nl_query}, timeout=60
+        f"{api_base}/discovery/interpret",
+        json={"query": nl_query, "max_terms": int(max_terms)},
+        timeout=60,
     )
     r.raise_for_status()
     plan = r.json()
@@ -91,6 +95,7 @@ def run_search(nl_query: str) -> dict:
         f"{api_base}/discovery/rank",
         json={
             "query": nl_query,
+            "max_scored": int(max_scored),
             "candidates": [
                 {
                     "ref": ref,
@@ -108,6 +113,8 @@ def run_search(nl_query: str) -> dict:
     return {
         "plan": plan,
         "warnings": plan["warnings"] + ranking["warnings"],
+        "scored_count": ranking["scored_count"],
+        "unscored_count": ranking["unscored_count"],
         "results": [
             {**merged[item["ref"]], "score": item["score"], "reason": item["reason"]}
             for item in ranking["ranked"]
@@ -126,7 +133,10 @@ if not search:
     st.stop()
 
 plan = search["plan"]
-st.caption(f"q={plan['q']}  bbox={plan['bbox']}  datetime={plan['datetime']}")
+st.caption(
+    f"q={plan['q']}  bbox={plan['bbox']}  datetime={plan['datetime']}  "
+    f"scored={search['scored_count']}  unscored={search['unscored_count']}"
+)
 for warning in search["warnings"]:
     st.warning(warning)
 
