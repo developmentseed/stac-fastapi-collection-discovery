@@ -113,17 +113,14 @@ def test_interpret_unparseable_expansion_keeps_topic_only(make_stub_llm):
     assert any("expansion" in w for w in body["warnings"])
 
 
-def test_interpret_respects_max_expansion_terms(make_stub_llm):
+def test_interpret_respects_max_terms(make_stub_llm):
     routes = {
         DECOMPOSE: {"topic": "t", "location": None, "date_expression": None},
         EXPAND: ["a", "b", "c", "d"],
     }
-    client = make_client(make_stub_llm(routes), max_expansion_terms=2)
-    assert client.post("/discovery/interpret", json={"query": "t"}).json()["q"] == [
-        "t",
-        "a",
-        "b",
-    ]
+    client = make_client(make_stub_llm(routes))
+    r = client.post("/discovery/interpret", json={"query": "t", "max_terms": 3})
+    assert r.json()["q"] == ["t", "a", "b"]
 
 
 def test_interpret_llm_error_is_503(make_stub_llm):
@@ -216,6 +213,7 @@ def test_rank_returns_refs_scores_reasons_best_first(make_stub_llm):
             {"ref": "y", "score": 9.0, "reason": "strong"},
             {"ref": "https://a/collections/x", "score": 3.0, "reason": "weak"},
         ],
+        "scored_count": 2,
         "unscored_count": 0,
         "warnings": [],
     }
@@ -227,7 +225,7 @@ def test_rank_presorts_by_matched_terms_and_reports_unscored(make_stub_llm):
         "query": "q",
         "candidates": [{"id": "a"}, {"id": "b", "matched_terms": ["t1", "t2"]}],
     }
-    r = make_client(stub, rerank_candidate_count=1).post("/discovery/rank", json=body)
+    r = make_client(stub).post("/discovery/rank", json={**body, "max_scored": 1})
     assert [x["ref"] for x in r.json()["ranked"]] == ["b", "a"]
     assert r.json()["ranked"][1]["score"] is None
     assert r.json()["unscored_count"] == 1
@@ -256,7 +254,7 @@ def test_rank_distinct_refs_allow_same_id(make_stub_llm):
 
 def test_rank_over_request_limit_is_422(make_stub_llm):
     stub = make_stub_llm({RERANK: {"ranked": []}})
-    r = make_client(stub, rerank_max_request_candidates=2).post(
+    r = make_client(stub, discovery_max_candidates=2).post(
         "/discovery/rank", json=rank_body("a", "b", "c")
     )
     assert r.status_code == 422 and stub.calls == []
@@ -277,7 +275,12 @@ def test_rank_empty_candidates_is_200_and_makes_no_llm_call(make_stub_llm):
     stub = make_stub_llm({})
     r = make_client(stub).post("/discovery/rank", json={"query": "q", "candidates": []})
     assert r.status_code == 200
-    assert r.json() == {"ranked": [], "unscored_count": 0, "warnings": []}
+    assert r.json() == {
+        "ranked": [],
+        "scored_count": 0,
+        "unscored_count": 0,
+        "warnings": [],
+    }
     assert stub.calls == []
 
 
@@ -445,11 +448,160 @@ def test_misconfigured_llm_detail_is_fixed_text():
 
 
 @pytest.mark.parametrize(
-    "field", ["rerank_candidate_count", "rerank_max_request_candidates"]
+    "field", ["discovery_max_terms", "discovery_max_scored", "discovery_max_candidates"]
 )
-def test_rerank_settings_must_be_positive(field):
+def test_discovery_ceiling_settings_must_be_positive(field):
     with pytest.raises(ValueError):
         Settings(**{field: 0})
+
+
+@pytest.mark.parametrize(
+    "old",
+    ["max_expansion_terms", "rerank_candidate_count", "rerank_max_request_candidates"],
+)
+def test_old_limit_settings_are_removed(old):
+    assert old not in Settings.model_fields
+
+
+# --- client-chosen limits ---
+
+TOPIC_ROUTES = {
+    DECOMPOSE: {"topic": "t", "location": None, "date_expression": None},
+    EXPAND: [f"e{i}" for i in range(20)],
+}
+
+
+def test_interpret_default_max_terms_is_10(make_stub_llm):
+    r = make_client(make_stub_llm(TOPIC_ROUTES)).post(
+        "/discovery/interpret", json={"query": "t"}
+    )
+    assert len(r.json()["q"]) == 10 and r.json()["q"][0] == "t"
+
+
+def test_interpret_null_max_terms_uses_default(make_stub_llm):
+    r = make_client(make_stub_llm(TOPIC_ROUTES)).post(
+        "/discovery/interpret", json={"query": "t", "max_terms": None}
+    )
+    assert len(r.json()["q"]) == 10
+
+
+def test_interpret_max_terms_above_ceiling_is_422(make_stub_llm):
+    stub = make_stub_llm(TOPIC_ROUTES)
+    r = make_client(stub, discovery_max_terms=25).post(
+        "/discovery/interpret", json={"query": "t", "max_terms": 40}
+    )
+    assert r.status_code == 422
+    assert "40" in r.json()["detail"] and "25" in r.json()["detail"]
+    assert stub.calls == []
+
+
+def test_interpret_max_terms_at_ceiling_is_ok(make_stub_llm):
+    r = make_client(make_stub_llm(TOPIC_ROUTES), discovery_max_terms=15).post(
+        "/discovery/interpret", json={"query": "t", "max_terms": 15}
+    )
+    assert r.status_code == 200 and len(r.json()["q"]) == 15
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_interpret_max_terms_must_be_positive(make_stub_llm, value):
+    stub = make_stub_llm(TOPIC_ROUTES)
+    r = make_client(stub).post(
+        "/discovery/interpret", json={"query": "t", "max_terms": value}
+    )
+    assert r.status_code == 422 and stub.calls == []
+
+
+def test_interpret_max_terms_1_skips_expansion_call(make_stub_llm):
+    stub = make_stub_llm(TOPIC_ROUTES)
+    r = make_client(stub).post(
+        "/discovery/interpret", json={"query": "t", "max_terms": 1}
+    )
+    assert r.status_code == 200 and r.json()["q"] == ["t"]
+    assert r.json()["warnings"] == []
+    assert len(stub.calls) == 1 and DECOMPOSE in stub.calls[0]["system"]
+
+
+def test_interpret_default_clamped_to_lower_ceiling(make_stub_llm):
+    r = make_client(make_stub_llm(TOPIC_ROUTES), discovery_max_terms=4).post(
+        "/discovery/interpret", json={"query": "t"}
+    )
+    assert r.status_code == 200 and len(r.json()["q"]) == 4
+
+
+def test_interpret_no_topic_with_max_terms_is_empty_q(make_stub_llm):
+    routes = {DECOMPOSE: {"topic": "", "location": None, "date_expression": None}}
+    r = make_client(make_stub_llm(routes)).post(
+        "/discovery/interpret", json={"query": "q", "max_terms": 1}
+    )
+    assert r.status_code == 200 and r.json()["q"] == []
+
+
+def many(n):
+    return [{"id": f"c{i}"} for i in range(n)]
+
+
+def scored_all(n):
+    return {
+        RERANK: {"ranked": [{"i": i + 1, "score": 5, "reason": "r"} for i in range(n)]}
+    }
+
+
+def test_rank_default_max_scored_is_50(make_stub_llm):
+    stub = make_stub_llm(scored_all(50))
+    body = {"query": "q", "candidates": many(80)}
+    r = make_client(stub, discovery_max_scored=100).post("/discovery/rank", json=body)
+    assert r.status_code == 200
+    assert r.json()["scored_count"] == 50 and r.json()["unscored_count"] == 30
+    assert "50. " in stub.calls[0]["prompt"] and "51. " not in stub.calls[0]["prompt"]
+
+
+def test_rank_max_scored_takes_effect(make_stub_llm):
+    stub = make_stub_llm(scored_all(2))
+    body = {"query": "q", "candidates": many(5), "max_scored": 2}
+    r = make_client(stub).post("/discovery/rank", json=body)
+    assert r.json()["scored_count"] == 2 and r.json()["unscored_count"] == 3
+    assert "2. " in stub.calls[0]["prompt"] and "3. " not in stub.calls[0]["prompt"]
+
+
+def test_rank_null_max_scored_uses_default(make_stub_llm):
+    stub = make_stub_llm(scored_all(50))
+    body = {"query": "q", "candidates": many(60), "max_scored": None}
+    assert (
+        make_client(stub).post("/discovery/rank", json=body).json()["scored_count"] == 50
+    )
+
+
+def test_rank_max_scored_above_ceiling_is_422(make_stub_llm):
+    stub = make_stub_llm(scored_all(5))
+    body = {"query": "q", "candidates": many(5), "max_scored": 30}
+    r = make_client(stub, discovery_max_scored=20).post("/discovery/rank", json=body)
+    assert r.status_code == 422
+    assert "30" in r.json()["detail"] and "20" in r.json()["detail"]
+    assert stub.calls == []
+
+
+@pytest.mark.parametrize("value", [0, -3])
+def test_rank_max_scored_must_be_positive(make_stub_llm, value):
+    stub = make_stub_llm(scored_all(5))
+    body = {"query": "q", "candidates": many(5), "max_scored": value}
+    assert make_client(stub).post("/discovery/rank", json=body).status_code == 422
+    assert stub.calls == []
+
+
+def test_rank_max_scored_larger_than_candidates_scores_all(make_stub_llm):
+    stub = make_stub_llm(scored_all(3))
+    body = {"query": "q", "candidates": many(3), "max_scored": 90}
+    j = make_client(stub).post("/discovery/rank", json=body).json()
+    assert j["scored_count"] == 3 and j["unscored_count"] == 0
+
+
+def test_rank_default_clamped_to_lower_ceiling(make_stub_llm):
+    stub = make_stub_llm(scored_all(20))
+    body = {"query": "q", "candidates": many(30)}
+    r = make_client(stub, discovery_max_scored=20).post("/discovery/rank", json=body)
+    assert r.status_code == 200
+    assert r.json()["scored_count"] == 20
+    assert r.json()["scored_count"] + r.json()["unscored_count"] == 30
 
 
 def test_rank_duplicate_refs_detail_is_bounded(make_stub_llm):

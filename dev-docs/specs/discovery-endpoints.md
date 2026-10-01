@@ -62,8 +62,13 @@ class and landing-page links advertise them so clients can detect the feature.
 Request:
 
 ```json
-{ "query": "wildfires in California 2023" }
+{ "query": "wildfires in California 2023", "max_terms": 5 }
 ```
+
+- `max_terms` is optional (integer, at least 1; default 10). It is the client's
+  cap on the number of terms in `q` (topic plus expansions). A value above the
+  operator ceiling `discovery_max_terms` (default 25) returns `422` stating the
+  ceiling; it is never silently clamped.
 
 Response `200`:
 
@@ -77,7 +82,8 @@ Response `200`:
 ```
 
 - `q` is always an array (first element is the topic; the rest are LLM
-  expansions, capped at `max_expansion_terms`). Empty if the query has no topic.
+  expansions; at most `max_terms` entries in total). Empty if the query has no
+  topic.
 - `bbox` and `datetime` are `null` when absent from the query or not resolvable.
 - A failed sub-step (date parse, geocode, expansion) yields `null`/fewer terms
   and a human-readable entry in `warnings`; the response is still `200`.
@@ -102,6 +108,7 @@ Request:
 ```json
 {
   "query": "wildfires in California 2023",
+  "max_scored": 50,
   "candidates": [
     {
       "ref": "https://api.example/collections/landsat-c2",
@@ -112,6 +119,12 @@ Request:
   ]
 }
 ```
+
+- `max_scored` is optional (integer, at least 1; default 50): how many
+  candidates, chosen by term coverage, the LLM scores. A value above the
+  operator ceiling `discovery_max_scored` (default 100) returns `422` stating
+  the ceiling; it is never silently clamped. A value larger than the number of
+  candidates scores them all.
 
 - Candidates are **slim**: only `id` (required), `title`, and `matched_terms`.
   Full collection objects are not accepted; they can be megabytes and the
@@ -129,15 +142,19 @@ Response `200`, ordered best first:
   "ranked": [
     { "ref": "https://api.example/|landsat-c2", "score": 8.5, "reason": "..." }
   ],
+  "scored_count": 1,
   "unscored_count": 0,
   "warnings": []
 }
 ```
 
+`scored_count` is how many candidates the LLM scored; `scored_count +
+unscored_count` equals the number of candidates sent.
+
 Behaviour:
 
 1. Stable-sort candidates by `len(matched_terms)` descending (term coverage).
-2. Score the first `rerank_candidate_count` with the existing single batched
+2. Score the first `max_scored` with the existing single batched
    `CollectionReranker` call.
 3. Candidates beyond the cap are appended after the scored ones with
    `score: null` and reason `"not scored: over candidate cap"`, so none are
@@ -149,15 +166,23 @@ Behaviour:
    `200`, matching the prototype's fallback.
 5. No `top_k`: all candidates are returned.
 
-Limits:
-- Scored window: `rerank_candidate_count` (existing setting, default 50).
-- Request limit: `rerank_max_request_candidates` (new setting, default 200,
-  i.e. a few times the scored window). More than this returns `422`. Because
-  candidates are slim, 200 is on the order of tens of KB.
+Limits. The client chooses how much work to ask for; the server only enforces
+operator-set **ceilings** (settings), each rejecting with `422` and naming the
+ceiling:
+- Scored window: the request's `max_scored` (default 50), at most
+  `discovery_max_scored` (default 100).
+- Terms: the `interpret` request's `max_terms` (default 10), at most
+  `discovery_max_terms` (default 25).
+- Request size: at most `discovery_max_candidates` candidates per `rank`
+  request (default 200). Because candidates are slim, 200 is on the order of
+  tens of KB.
+- All three settings have `ge=1`. The defaults 10 and 50 are constants in
+  `discovery.py`, not settings.
 - This is a **top-N ranking**: the LLM scores the N best candidates by term
   coverage; the remainder are ordered by coverage only. A client that needs a
-  score for every candidate should send at most `rerank_candidate_count`.
-  The request limit exists so the pre-sort has something to choose from.
+  score for every candidate should send at most `max_scored` candidates.
+  The request size limit exists so the pre-sort has something to choose from.
+  Scores from separate `rank` calls are not comparable with one another.
 - The LLM's `max_tokens` must scale with the scored window (the prototype's
   fixed 1024 is too small for 50 scored items with reasons).
 - Duplicate `ref`s return `422`. Empty `candidates` returns `200` with an empty
@@ -172,7 +197,9 @@ Limits:
   `StacCollectionSearchApi` using the `APIRouter` pattern already used for the
   `/_mgmt` endpoints.
 - Conformance class and landing-page links for the discovery endpoints.
-- `rerank_max_request_candidates` setting.
+- Operator ceiling settings `discovery_max_terms`, `discovery_max_scored`,
+  `discovery_max_candidates` (these replace `max_expansion_terms`,
+  `rerank_candidate_count` and `rerank_max_request_candidates`).
 - No change to `GET /collections` is needed for source identity: upstream
   collections already carry a `self` link (see Client flow).
 

@@ -38,17 +38,19 @@ class Settings(ApiSettings):
     )
 
     # LLM Tuning Parameters
-    max_expansion_terms: int = Field(
-        default=10,
-        description="Maximum number of expanded terms to generate",
-    )
-    rerank_candidate_count: int = Field(
-        default=50,
+    discovery_max_terms: int = Field(
+        default=25,
         ge=1,
-        description="Number of top candidates (by term coverage) the LLM scores "
-        "per POST /discovery/rank request",
+        description="Ceiling on the `max_terms` a client may request from "
+        "POST /discovery/interpret; larger values are rejected with 422",
     )
-    rerank_max_request_candidates: int = Field(
+    discovery_max_scored: int = Field(
+        default=100,
+        ge=1,
+        description="Ceiling on the `max_scored` a client may request from "
+        "POST /discovery/rank; larger values are rejected with 422",
+    )
+    discovery_max_candidates: int = Field(
         default=200,
         ge=1,
         description="Maximum candidates accepted by POST /discovery/rank; "

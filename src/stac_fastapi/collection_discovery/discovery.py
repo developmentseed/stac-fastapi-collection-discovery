@@ -35,6 +35,8 @@ from stac_fastapi.collection_discovery.llm.reranker import (
 logger = logging.getLogger(__name__)
 
 MAX_QUERY_LENGTH = 1000
+DEFAULT_MAX_TERMS = 10
+DEFAULT_MAX_SCORED = 50
 DISCOVERY_DOCS_BASE = "https://developmentseed.org/stac-fastapi-collection-discovery"
 # Must not contain "collection-search": core.conformance_classes intersects
 # every such class with the upstream APIs' and would drop ours.
@@ -87,8 +89,22 @@ class _QueryModel(BaseModel):
         return value
 
 
+def _effective_limit(requested: int | None, default: int, ceiling: int, name: str) -> int:
+    """Resolve a client-chosen limit; 422 (never clamp) above the ceiling."""
+    if requested is None:
+        return min(default, ceiling)
+    if requested > ceiling:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{name} {requested} exceeds the maximum of {ceiling}",
+        )
+    return requested
+
+
 class InterpretRequest(_QueryModel):
     """Natural language query to interpret."""
+
+    max_terms: Annotated[int, Field(ge=1)] | None = None
 
 
 class InterpretResponse(BaseModel):
@@ -117,6 +133,7 @@ class RankRequest(_QueryModel):
     """Original query plus the candidate collections to rank."""
 
     candidates: list[RankCandidateIn]
+    max_scored: Annotated[int, Field(ge=1)] | None = None
 
 
 class RankedOut(BaseModel):
@@ -127,6 +144,7 @@ class RankedOut(BaseModel):
 
 class RankResponse(BaseModel):
     ranked: list[RankedOut]
+    scored_count: int
     unscored_count: int
     warnings: list[str] = []
 
@@ -226,17 +244,25 @@ def build_discovery_router() -> APIRouter:
         geocoder: Annotated[Geocoder | None, Depends(get_geocoder)],
     ) -> InterpretResponse:
         settings = request.app.state.settings
+        max_terms = _effective_limit(
+            body.max_terms, DEFAULT_MAX_TERMS, settings.discovery_max_terms, "max_terms"
+        )
 
         decomposed = await QueryDecomposer(llm).decompose(body.query)
         if decomposed.error:
             logger.warning("query decomposition failed: %s", decomposed.error)
             raise HTTPException(status_code=503, detail="LLM unavailable")
 
+        async def _topic_only(topic: str) -> tuple[list[str], list[str]]:
+            return [topic], []
+
         async def _no_terms() -> tuple[list[str], list[str]]:
             return [], ["no topic found in query"]
 
         (terms, w_terms), (dt, w_dt), (bbox, w_bbox) = await asyncio.gather(
-            _expand(llm, decomposed.topic, settings.max_expansion_terms)
+            _expand(llm, decomposed.topic, max_terms - 1)
+            if decomposed.topic and max_terms > 1
+            else _topic_only(decomposed.topic)
             if decomposed.topic
             else _no_terms(),
             _resolve_datetime(llm, decomposed),
@@ -254,7 +280,7 @@ def build_discovery_router() -> APIRouter:
         description=(
             "Score candidates against the original query. Candidates are "
             "ordered by term coverage (`matched_terms`) and the top "
-            "`rerank_candidate_count` are scored by the LLM; the rest are "
+            "`max_scored` (default 50) are scored by the LLM; the rest are "
             "returned after them with `score: null`. All candidates are "
             "returned, best first. `reason` is plain text; escape it before "
             "rendering as HTML."
@@ -267,11 +293,17 @@ def build_discovery_router() -> APIRouter:
     ) -> RankResponse:
         settings = request.app.state.settings
 
-        if len(body.candidates) > settings.rerank_max_request_candidates:
+        max_scored = _effective_limit(
+            body.max_scored,
+            DEFAULT_MAX_SCORED,
+            settings.discovery_max_scored,
+            "max_scored",
+        )
+        if len(body.candidates) > settings.discovery_max_candidates:
             raise HTTPException(
                 status_code=422,
                 detail=f"Too many candidates ({len(body.candidates)}); "
-                f"maximum is {settings.rerank_max_request_candidates}.",
+                f"maximum is {settings.discovery_max_candidates}.",
             )
 
         refs = [c.ref or c.id for c in body.candidates]
@@ -292,7 +324,7 @@ def build_discovery_router() -> APIRouter:
         result = await CollectionReranker(llm).rerank(
             body.query,
             candidates,
-            max_scored=settings.rerank_candidate_count,
+            max_scored=max_scored,
         )
         warnings: list[str] = []
         if result.error:
@@ -307,6 +339,7 @@ def build_discovery_router() -> APIRouter:
                 RankedOut(ref=r.ref, score=r.score, reason=r.reason)
                 for r in result.ranked
             ],
+            scored_count=result.scored_count,
             unscored_count=result.unscored_count,
             warnings=warnings,
         )
