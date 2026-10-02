@@ -1,6 +1,13 @@
 import pytest
 import respx
+from fastapi.testclient import TestClient
 from httpx import Response
+
+from stac_fastapi.collection_discovery.discovery import (
+    DISCOVERY_CONFORMANCE_CLASS,
+    DISCOVERY_INTERPRET_REL,
+    DISCOVERY_RANK_REL,
+)
 
 
 class TestApp:
@@ -427,15 +434,15 @@ def test_collections_has_no_llm_query_param(test_app):
     assert "query" not in {p["name"] for p in params}
 
 
-def test_discovery_routes_absent_without_llm(test_app):
-    paths = {r.path for r in test_app.routes}
-    assert "/discovery/interpret" not in paths
-    assert "/discovery/rank" not in paths
-
-
-def test_discovery_routes_present_with_llm(llm_test_app):
-    paths = {r.path for r in llm_test_app.routes}
-    assert {"/discovery/interpret", "/discovery/rank"} <= paths
+@pytest.mark.parametrize(
+    ("app_fixture", "expected"),
+    [("test_app", False), ("llm_test_app", True)],
+    ids=["without-llm", "with-llm"],
+)
+def test_discovery_routes_registered_only_with_llm(request, app_fixture, expected):
+    paths = {r.path for r in request.getfixturevalue(app_fixture).routes}
+    assert ("/discovery/interpret" in paths) is expected
+    assert ("/discovery/rank" in paths) is expected
 
 
 def test_discovery_route_404s_without_llm(client):
@@ -456,14 +463,6 @@ def _mock_upstream_conformance():
 
 @respx.mock
 def test_discovery_advertised_in_conformance_and_landing_page_with_llm(llm_test_app):
-    from fastapi.testclient import TestClient
-
-    from stac_fastapi.collection_discovery.discovery import (
-        DISCOVERY_CONFORMANCE_CLASS,
-        DISCOVERY_INTERPRET_REL,
-        DISCOVERY_RANK_REL,
-    )
-
     _mock_upstream_conformance()
     client = TestClient(llm_test_app)
 
@@ -479,14 +478,6 @@ def test_discovery_advertised_in_conformance_and_landing_page_with_llm(llm_test_
 
 @respx.mock
 def test_discovery_not_advertised_without_llm(test_app):
-    from fastapi.testclient import TestClient
-
-    from stac_fastapi.collection_discovery.discovery import (
-        DISCOVERY_CONFORMANCE_CLASS,
-        DISCOVERY_INTERPRET_REL,
-        DISCOVERY_RANK_REL,
-    )
-
     _mock_upstream_conformance()
     client = TestClient(test_app)
 
