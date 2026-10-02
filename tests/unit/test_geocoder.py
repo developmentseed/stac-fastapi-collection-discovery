@@ -14,33 +14,33 @@ CALIFORNIA = [
 ]
 
 
-@respx.mock
-async def test_geocode_returns_west_south_east_north():
-    respx.get(f"{BASE}/search").mock(return_value=httpx.Response(200, json=CALIFORNIA))
+@pytest.fixture
+def search_route():
+    with respx.mock:
+        yield respx.get(f"{BASE}/search").mock(
+            return_value=httpx.Response(200, json=CALIFORNIA)
+        )
+
+
+async def test_geocode_returns_west_south_east_north(search_route):
     result = await Geocoder(BASE).geocode("California")
     assert result is not None
     assert result.bbox == [-124.4, 32.5, -114.1, 42.0]
     assert result.resolved_name == "California, United States"
 
 
-@respx.mock
-async def test_geocode_caches_by_normalized_name():
-    route = respx.get(f"{BASE}/search").mock(
-        return_value=httpx.Response(200, json=CALIFORNIA)
-    )
+async def test_geocode_caches_by_normalized_name(search_route):
     geocoder = Geocoder(BASE)
     await geocoder.geocode("California")
     await geocoder.geocode("  california ")
-    assert route.call_count == 1
+    assert search_route.call_count == 1
 
 
-@respx.mock
-async def test_geocode_sends_identifying_user_agent():
-    route = respx.get(f"{BASE}/search").mock(
-        return_value=httpx.Response(200, json=CALIFORNIA)
-    )
+async def test_geocode_sends_identifying_user_agent(search_route):
     await Geocoder(BASE).geocode("California")
-    assert "STAC-Collection-Discovery" in route.calls[0].request.headers["user-agent"]
+    assert (
+        "STAC-Collection-Discovery" in search_route.calls[0].request.headers["user-agent"]
+    )
 
 
 @respx.mock
