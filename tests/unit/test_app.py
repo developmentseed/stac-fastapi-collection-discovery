@@ -495,3 +495,12 @@ def test_discovery_not_advertised_without_llm(test_app):
     )
     rels = {link["rel"] for link in client.get("/").json()["links"]}
     assert DISCOVERY_INTERPRET_REL not in rels and DISCOVERY_RANK_REL not in rels
+
+
+def test_openapi_includes_rank_schema_with_llm(llm_test_app):
+    schema = llm_test_app.openapi()
+
+    op = schema["paths"]["/discovery/rank"]["post"]
+    ref = op["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+    name = ref.rsplit("/", 1)[-1]
+    assert "scored_count" in schema["components"]["schemas"][name]["properties"]

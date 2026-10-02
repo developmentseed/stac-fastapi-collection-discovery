@@ -30,6 +30,7 @@ from stac_fastapi.collection_discovery.llm.reranker import (
     NO_SCORES_ERROR,
     CollectionReranker,
     RankCandidate,
+    RankedItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,14 +137,8 @@ class RankRequest(_QueryModel):
     max_scored: Annotated[int, Field(ge=1)] | None = None
 
 
-class RankedOut(BaseModel):
-    ref: str
-    score: float | None
-    reason: str | None
-
-
 class RankResponse(BaseModel):
-    ranked: list[RankedOut]
+    ranked: list[RankedItem]
     scored_count: int
     unscored_count: int
     warnings: list[str] = []
@@ -330,10 +325,7 @@ def build_discovery_router() -> APIRouter:
                 else "rerank: LLM call failed"
             ]
         return RankResponse(
-            ranked=[
-                RankedOut(ref=r.ref, score=r.score, reason=r.reason)
-                for r in result.ranked
-            ],
+            ranked=result.ranked,
             scored_count=result.scored_count,
             unscored_count=result.unscored_count,
             warnings=warnings,
