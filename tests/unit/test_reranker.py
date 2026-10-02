@@ -1,3 +1,5 @@
+import pytest
+
 from stac_fastapi.collection_discovery.llm.client import LLMError
 from stac_fastapi.collection_discovery.llm.reranker import (
     CollectionReranker,
@@ -66,6 +68,7 @@ async def test_candidates_omitted_by_llm_are_kept_unscored(make_stub_llm):
     assert [r.ref for r in result.ranked] == ["ref2", "ref1"]
     assert result.ranked[1].score is None
     assert result.ranked[1].reason == "not scored by the LLM"
+    assert result.error is None and result.scored_count == 1  # partial scoring is silent
 
 
 async def test_invalid_llm_items_are_ignored(make_stub_llm):
@@ -143,8 +146,11 @@ async def test_max_tokens_scales_with_scored_window(make_stub_llm):
     assert llm.calls[0]["max_tokens"] >= 50 * 96
 
 
-async def test_unparseable_reply_sets_error_and_keeps_all_unscored(make_stub_llm):
-    llm = make_stub_llm({RERANK: "not json"})
+@pytest.mark.parametrize(
+    "reply", ["not json", {"ranked": "x"}], ids=["non-json", "ranked-not-a-list"]
+)
+async def test_unusable_reply_sets_error_and_keeps_all_unscored(make_stub_llm, reply):
+    llm = make_stub_llm({RERANK: reply})
     result = await CollectionReranker(llm).rerank(
         "q", [cand(1), cand(2, ["a"])], max_scored=2
     )
@@ -159,19 +165,6 @@ async def test_bare_list_of_valid_items_is_scored(make_stub_llm):
     result = await CollectionReranker(llm).rerank("q", [cand(1), cand(2)])
     assert [r.ref for r in result.ranked] == ["ref2", "ref1"]
     assert result.ranked[0].score == 7.0 and result.error is None
-
-
-async def test_ranked_not_a_list_does_not_crash(make_stub_llm):
-    llm = make_stub_llm({RERANK: {"ranked": "x"}})
-    result = await CollectionReranker(llm).rerank("q", [cand(1)])
-    assert result.error == "LLM returned no usable scores"
-    assert result.ranked[0].score is None
-
-
-async def test_partial_scoring_is_silent(make_stub_llm):
-    llm = make_stub_llm({RERANK: {"ranked": [{"i": 1, "score": 5, "reason": "r"}]}})
-    result = await CollectionReranker(llm).rerank("q", [cand(1), cand(2)])
-    assert result.error is None and result.scored_count == 1
 
 
 async def test_non_string_reason_gets_fixed_reason(make_stub_llm):
