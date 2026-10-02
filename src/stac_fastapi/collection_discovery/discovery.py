@@ -176,8 +176,13 @@ def get_geocoder(request: Request) -> Geocoder | None:
 async def _expand(
     llm: LLMClient, topic: str, max_terms: int
 ) -> tuple[list[str], list[str]]:
+    """Expand ``topic`` into at most ``max_terms`` search terms (topic included)."""
+    if not topic:
+        return [], ["no topic found in query"]
+    if max_terms <= 1:
+        return [topic], []
     try:
-        result = await QueryExpander(llm).expand(topic, max_terms=max_terms)
+        result = await QueryExpander(llm).expand(topic, max_terms=max_terms - 1)
     except Exception:
         logger.exception("query expansion failed unexpectedly")
         return [topic], ["expansion failed"]
@@ -253,18 +258,8 @@ def build_discovery_router() -> APIRouter:
             logger.warning("query decomposition failed: %s", decomposed.error)
             raise HTTPException(status_code=503, detail="LLM unavailable")
 
-        async def _topic_only(topic: str) -> tuple[list[str], list[str]]:
-            return [topic], []
-
-        async def _no_terms() -> tuple[list[str], list[str]]:
-            return [], ["no topic found in query"]
-
         (terms, w_terms), (dt, w_dt), (bbox, w_bbox) = await asyncio.gather(
-            _expand(llm, decomposed.topic, max_terms - 1)
-            if decomposed.topic and max_terms > 1
-            else _topic_only(decomposed.topic)
-            if decomposed.topic
-            else _no_terms(),
+            _expand(llm, decomposed.topic, max_terms),
             _resolve_datetime(llm, decomposed),
             _resolve_bbox(geocoder, decomposed, settings.geocoding_timeout),
         )
