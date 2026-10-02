@@ -613,5 +613,6 @@ def test_rank_duplicate_refs_detail_is_bounded(make_stub_llm):
     detail = r.json()["detail"]
     assert r.status_code == 422
     assert "8" in detail
-    assert "dup4-" in detail and "dup5-" not in detail  # first 5 only (sorted)
+    assert "dup0-" in detail and "dup1-" not in detail  # first (sorted) example only
     assert "x" * 101 not in detail
+    assert len(detail) < 300
