@@ -127,7 +127,7 @@ async def test_llm_error_returns_all_candidates_unscored_in_presort_order(make_s
     )
     assert [r.ref for r in result.ranked] == ["ref2", "ref1"]
     assert all(r.score is None for r in result.ranked)
-    assert result.error == "LLM error: boom"
+    assert result.error == "LLM call failed"
     assert result.scored_count == 0
 
 

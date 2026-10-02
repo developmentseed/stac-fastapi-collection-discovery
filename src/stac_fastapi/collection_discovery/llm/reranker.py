@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 NOT_RANKED_REASON = "not ranked by the LLM reranker"
 NOT_SCORED_REASON = "not scored by the LLM"
 NO_REASON = "no reason given"
+LLM_FAILED_ERROR = "LLM call failed"
 NO_SCORES_ERROR = "LLM returned no usable scores"
 OVER_CAP_REASON = "not scored: over candidate cap"
 MIN_TOKENS = 512
@@ -147,7 +148,7 @@ class CollectionReranker:
                 candidate_count=len(ordered),
                 scored_count=0,
                 rerank_time_ms=(time.perf_counter() - start) * 1000,
-                error=f"LLM error: {e}",
+                error=LLM_FAILED_ERROR,
             )
 
         scored = self._parse(response.parse_json(), len(window))

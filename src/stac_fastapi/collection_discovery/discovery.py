@@ -27,7 +27,6 @@ from stac_fastapi.collection_discovery.llm.query_parser import (
     QueryDecomposer,
 )
 from stac_fastapi.collection_discovery.llm.reranker import (
-    NO_SCORES_ERROR,
     CollectionReranker,
     RankCandidate,
     RankedItem,
@@ -316,19 +315,11 @@ def build_discovery_router() -> APIRouter:
             candidates,
             max_scored=max_scored,
         )
-        warnings: list[str] = []
-        if result.error:
-            logger.warning("rerank failed: %s", result.error)
-            warnings = [
-                "rerank: LLM returned no usable scores"
-                if result.error == NO_SCORES_ERROR
-                else "rerank: LLM call failed"
-            ]
         return RankResponse(
             ranked=result.ranked,
             scored_count=result.scored_count,
             unscored_count=result.unscored_count,
-            warnings=warnings,
+            warnings=[f"rerank: {result.error}"] if result.error else [],
         )
 
     return router
