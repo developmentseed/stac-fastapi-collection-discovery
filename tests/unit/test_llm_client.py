@@ -34,6 +34,18 @@ def test_settings_default_timeout_and_validation():
         Settings(llm_timeout=0)
 
 
+@pytest.mark.parametrize(
+    "provider, prefix", [("openai", "gpt-"), ("anthropic", "claude-")]
+)
+def test_settings_default_model_matches_provider(provider, prefix):
+    assert Settings(llm_provider=provider).llm_model.startswith(prefix)
+
+
+def test_settings_explicit_model_is_kept():
+    settings = Settings(llm_provider="anthropic", llm_model="my-model")
+    assert settings.llm_model == "my-model"
+
+
 @pytest.mark.parametrize("provider", ["openai", "anthropic"])
 def test_from_settings_passes_timeout_to_sdk_client(fake_sdks, provider):
     client = LLMClient.from_settings(

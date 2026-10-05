@@ -1,8 +1,14 @@
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from stac_fastapi.types.config import ApiSettings
+
+
+DEFAULT_LLM_MODELS = {
+    "openai": "gpt-4o-mini",
+    "anthropic": "claude-haiku-4-5-20251001",
+}
 
 
 class Settings(ApiSettings):
@@ -27,8 +33,9 @@ class Settings(ApiSettings):
         description="API key for the LLM provider. Required if llm_provider is set.",
     )
     llm_model: str = Field(
-        default="gpt-4o-mini",
-        description="Model name (e.g., 'gpt-4o-mini', 'claude-sonnet-4-20250514')",
+        default="",
+        description="Model name (e.g., 'gpt-4o-mini', 'claude-sonnet-4-20250514'). "
+        "Defaults to a model suited to the configured provider.",
     )
 
     llm_timeout: float = Field(
@@ -67,6 +74,12 @@ class Settings(ApiSettings):
         default=10.0,
         description="Timeout in seconds for geocoding requests",
     )
+
+    @model_validator(mode="after")
+    def default_llm_model(self):
+        if not self.llm_model and self.llm_provider:
+            self.llm_model = DEFAULT_LLM_MODELS[self.llm_provider]
+        return self
 
     @field_validator("upstream_api_urls")
     def parse_upstream_api_urls(cls, v):
