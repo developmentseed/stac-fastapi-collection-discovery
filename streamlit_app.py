@@ -141,10 +141,19 @@ for warning in search["warnings"]:
     st.warning(warning)
 
 results = search["results"]
+if not results:
+    st.info(
+        "No collections found. Every term returned nothing from the upstream APIs "
+        "with these filters; try a broader query or different upstream APIs."
+    )
+    st.stop()
+
 pages = max(1, -(-len(results) // int(per_page)))
-page = st.number_input("Page", 1, pages, key="page")
+page = st.number_input("Results page", 1, pages, key="page")
 start = (int(page) - 1) * int(per_page)
-for item in results[start : start + int(per_page)]:
+end = min(start + int(per_page), len(results))
+st.caption(f"Showing {start + 1}–{end} of {len(results)} (page {int(page)} of {pages})")
+for item in results[start:end]:
     c = item["collection"]
     score = "unscored" if item["score"] is None else f"{item['score']:.1f}/10"
     st.subheader(f"{c.get('title') or c['id']}  ·  {score}")
