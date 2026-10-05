@@ -1,7 +1,8 @@
-"""LLM-assisted re-ranking of federated collection search results."""
+"""LLM-assisted ranking of candidate collections."""
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -12,177 +13,199 @@ from stac_fastapi.collection_discovery.llm.prompts import RERANKING_SYSTEM_PROMP
 
 logger = logging.getLogger(__name__)
 
+NOT_RANKED_REASON = "not ranked by the LLM reranker"
+NOT_SCORED_REASON = "not scored by the LLM"
+NO_REASON = "no reason given"
+LLM_FAILED_ERROR = "LLM call failed"
+NO_SCORES_ERROR = "LLM returned no usable scores"
+OVER_CAP_REASON = "not scored: over candidate cap"
+MIN_TOKENS = 512
+TOKENS_PER_CANDIDATE = 96
+
 
 @dataclass
-class RankedCollection:
-    """A collection with its relevance assessment."""
+class RankCandidate:
+    """A candidate collection submitted for ranking."""
 
-    collection: dict[str, Any]
-    """The STAC collection object."""
+    id: str
+    ref: str
+    """Opaque, unique identifier echoed back in the result."""
 
+    title: str | None = None
+    matched_terms: list[str] = field(default_factory=list)
+    """Search terms that surfaced this candidate (client-reported)."""
+
+
+@dataclass
+class RankedItem:
+    """One ranked candidate."""
+
+    ref: str
     score: float | None
-    """Relevance score (0-10), or None if not ranked."""
+    """Relevance score 0-10, or None if the candidate was not scored."""
 
     reason: str | None
-    """Short explanation of the relevance judgment."""
-
-    source_api: str | None = None
-    """Upstream API the collection came from (provenance)."""
-
-    matched_terms: list[str] | None = None
-    """All search terms that surfaced this collection (provenance)."""
 
 
 @dataclass
 class RerankResult:
-    """Result of re-ranking a set of collections."""
+    """Result of ranking a set of candidates."""
 
-    ranked: list[RankedCollection] = field(default_factory=list)
-    """Collections ordered by relevance score, most relevant first."""
+    ranked: list[RankedItem]
+    """All candidates: scored (best first), then unscored."""
 
-    candidate_count: int = 0
-    """Number of candidates submitted for ranking."""
-
-    rerank_time_ms: float = 0.0
-    """Time taken for re-ranking in milliseconds."""
-
+    candidate_count: int
+    scored_count: int
+    rerank_time_ms: float
     error: str | None = None
-    """Error message if re-ranking failed."""
+
+    @property
+    def unscored_count(self) -> int:
+        return self.candidate_count - self.scored_count
+
+
+def _one_line(text: str | None, limit: int) -> str:
+    """Collapse whitespace so a value cannot break the numbered prompt list."""
+    return " ".join((text or "").split())[:limit]
+
+
+def _coerce_score(value: Any) -> float | None:
+    """Coerce an LLM-provided score to a float in [0, 10], or None."""
+    if isinstance(value, bool):
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    if score != score:  # NaN
+        return None
+    return min(10.0, max(0.0, score))
 
 
 class CollectionReranker:
-    """Re-rank collections by relevance to the original query using an LLM.
+    """Rank candidate collections by relevance to a query using one LLM call.
 
-    Uses a single batched LLM call: sends a compact "N. id - title" list
-    and receives relevance scores, then reorders and annotates results.
+    Candidates are stable-sorted by term coverage (how many distinct search
+    terms surfaced them); the first ``max_scored`` are scored by the LLM and
+    the rest are appended unscored, so no candidate is ever dropped.
 
     Example:
         ```python
         reranker = CollectionReranker(llm_client)
-        result = await reranker.rerank("wildfires in California", collections)
-        for rc in result.ranked:
-            print(rc.score, rc.collection["id"])
+        result = await reranker.rerank("wildfires", candidates, max_scored=50)
         ```
     """
 
     def __init__(self, client: LLMClient):
-        """Initialize the reranker.
-
-        Args:
-            client: LLM client for making generation requests
-        """
         self._client = client
 
     async def rerank(
         self,
         query: str,
-        collections: list[dict[str, Any]],
-        max_candidates: int = 50,
-        top_k: int = 10,
+        candidates: list[RankCandidate],
+        max_scored: int = 50,
     ) -> RerankResult:
-        """Score and reorder collections by relevance to the query.
+        """Score and order candidates.
 
         Args:
             query: The original natural language user query
-            collections: Candidate collections (dicts); provenance keys
-                ``_source_api`` and ``_matched_terms`` are carried through
-            max_candidates: Cap on candidates sent to the LLM
-            top_k: Number of results to return after ranking
+            candidates: Candidates to rank (refs must be unique)
+            max_scored: Number of top-coverage candidates sent to the LLM
 
         Returns:
-            RerankResult with ranked collections
+            RerankResult with every candidate present in ``ranked``
         """
-        start_time = time.perf_counter()
-        candidates = collections[:max_candidates]
-
+        start = time.perf_counter()
         if not candidates:
-            return RerankResult(candidate_count=0)
+            return RerankResult([], 0, 0, 0.0)
 
-        lines = []
-        for i, c in enumerate(candidates, 1):
-            title = (c.get("title") or "")[:80]
-            lines.append(f"{i}. {c.get('id', '?')} - {title}")
+        # Stable sort: ties keep the caller's order
+        ordered = sorted(candidates, key=lambda c: -len(set(c.matched_terms)))
+        window, tail = ordered[:max_scored], ordered[max_scored:]
+
+        lines = [
+            f"{i}. {_one_line(c.id, 120)} - {_one_line(c.title, 80)}"
+            for i, c in enumerate(window, 1)
+        ]
+        prompt = (
+            f"User query: {json.dumps(query)}\n\nCollections:\n"
+            + "\n".join(lines)
+            + f"\n\nReturn a score for each of the {len(window)} candidates."
+        )
 
         try:
             response = await self._client.generate(
-                prompt=(
-                    f'User query: "{query}"\n\nCollections:\n'
-                    + "\n".join(lines)
-                    + f"\n\nReturn the top {top_k} candidates by score."
-                ),
+                prompt=prompt,
                 system=RERANKING_SYSTEM_PROMPT,
                 json_mode=True,
                 temperature=0.0,
-                max_tokens=1024,
+                max_tokens=max(MIN_TOKENS, TOKENS_PER_CANDIDATE * len(window)),
             )
-
-            rerank_time_ms = (time.perf_counter() - start_time) * 1000
-
-            parsed = response.parse_json()
-            ranked_items: list[dict] = []
-            if parsed and isinstance(parsed, dict):
-                ranked_items = parsed.get("ranked") or parsed.get("results") or []
-            elif parsed and isinstance(parsed, list):
-                ranked_items = parsed
-
-            ranked_items = sorted(
-                (
-                    r
-                    for r in ranked_items
-                    if isinstance(r, dict) and isinstance(r.get("i"), int)
-                ),
-                key=lambda r: -(r.get("score") or 0),
-            )
-
-            reranked: list[RankedCollection] = []
-            used: set[int] = set()
-            for r in ranked_items:
-                idx = r["i"] - 1
-                if 0 <= idx < len(candidates) and idx not in used:
-                    used.add(idx)
-                    c = candidates[idx]
-                    reranked.append(
-                        RankedCollection(
-                            collection=c,
-                            score=r.get("score"),
-                            reason=r.get("reason"),
-                            source_api=c.get("_source_api"),
-                            matched_terms=c.get("_matched_terms"),
-                        )
-                    )
-
-            logger.info(
-                f"Reranked {len(candidates)} candidates -> "
-                f"{min(len(reranked), top_k)} results",
-                extra={
-                    "query": query,
-                    "candidate_count": len(candidates),
-                    "rerank_time_ms": round(rerank_time_ms, 2),
-                },
-            )
-
-            return RerankResult(
-                ranked=reranked[:top_k],
-                candidate_count=len(candidates),
-                rerank_time_ms=rerank_time_ms,
-            )
-
         except LLMError as e:
-            rerank_time_ms = (time.perf_counter() - start_time) * 1000
-            logger.error(f"LLM error re-ranking for '{query}': {e}")
-            # On failure return candidates in original order, unranked
+            logger.error(f"LLM error ranking for '{query}': {e}")
             return RerankResult(
-                ranked=[
-                    RankedCollection(
-                        collection=c,
-                        score=None,
-                        reason="not ranked by the LLM reranker",
-                        source_api=c.get("_source_api"),
-                        matched_terms=c.get("_matched_terms"),
-                    )
-                    for c in candidates[:top_k]
-                ],
-                candidate_count=len(candidates),
-                rerank_time_ms=rerank_time_ms,
-                error=f"LLM error: {e}",
+                ranked=[RankedItem(c.ref, None, NOT_RANKED_REASON) for c in ordered],
+                candidate_count=len(ordered),
+                scored_count=0,
+                rerank_time_ms=(time.perf_counter() - start) * 1000,
+                error=LLM_FAILED_ERROR,
             )
+
+        scored = self._parse(response.parse_json(), len(window))
+        order = sorted(scored, key=lambda idx: (-scored[idx][0], idx))
+
+        ranked = [RankedItem(window[i].ref, *scored[i]) for i in order]
+        ranked += [
+            RankedItem(c.ref, None, NOT_SCORED_REASON)
+            for idx, c in enumerate(window)
+            if idx not in scored
+        ]
+        ranked += [RankedItem(c.ref, None, OVER_CAP_REASON) for c in tail]
+
+        elapsed = (time.perf_counter() - start) * 1000
+        logger.info(
+            f"Ranked {len(ordered)} candidates ({len(scored)} scored)",
+            extra={
+                "query": query,
+                "candidate_count": len(ordered),
+                "scored_count": len(scored),
+                "rerank_time_ms": round(elapsed, 2),
+            },
+        )
+        if not scored:
+            logger.warning(
+                f"Reranker produced no usable scores for '{query}': "
+                f"{response.content[:200]}"
+            )
+        return RerankResult(
+            ranked=ranked,
+            candidate_count=len(ordered),
+            scored_count=len(scored),
+            rerank_time_ms=elapsed,
+            error=None if scored else NO_SCORES_ERROR,
+        )
+
+    @staticmethod
+    def _parse(parsed: Any, window_size: int) -> dict[int, tuple[float, str]]:
+        """Map 0-based window index -> (score, reason), ignoring invalid items."""
+        items: Any = []
+        if isinstance(parsed, dict):
+            items = parsed.get("ranked") or parsed.get("results") or []
+        elif isinstance(parsed, list):
+            items = parsed
+
+        scored: dict[int, tuple[float, str]] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            i = item.get("i")
+            if isinstance(i, bool) or not isinstance(i, int):
+                continue
+            if not 1 <= i <= window_size or (i - 1) in scored:
+                continue
+            score = _coerce_score(item.get("score"))
+            if score is None:
+                continue
+            reason = item.get("reason")
+            scored[i - 1] = (score, reason if isinstance(reason, str) else NO_REASON)
+        return scored

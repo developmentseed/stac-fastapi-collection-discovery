@@ -14,6 +14,13 @@ from stac_fastapi.collection_discovery.llm.prompts import (
 logger = logging.getLogger(__name__)
 
 
+def _clean(value: object) -> str | None:
+    """Keep only non-blank strings (stripped); anything else becomes None."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
 @dataclass
 class DecomposedQuery:
     """Result of decomposing a natural language search query."""
@@ -22,7 +29,8 @@ class DecomposedQuery:
     """The original user query."""
 
     topic: str
-    """The core phenomenon or data type (no location, no dates)."""
+    """The core phenomenon or data type (no location, no dates). Empty when the
+    LLM reply parsed but contained no usable topic."""
 
     location: str | None
     """Extracted place name, or None if no location found."""
@@ -101,9 +109,9 @@ class QueryDecomposer:
 
             result = DecomposedQuery(
                 original_query=query,
-                topic=parsed.get("topic") or query,
-                location=parsed.get("location"),
-                date_expression=parsed.get("date_expression"),
+                topic=_clean(parsed.get("topic")) or "",
+                location=_clean(parsed.get("location")),
+                date_expression=_clean(parsed.get("date_expression")),
                 decompose_time_ms=decompose_time_ms,
             )
 

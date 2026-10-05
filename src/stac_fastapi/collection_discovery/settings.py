@@ -1,8 +1,14 @@
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from stac_fastapi.types.config import ApiSettings
+
+
+DEFAULT_LLM_MODELS = {
+    "openai": "gpt-4o-mini",
+    "anthropic": "claude-haiku-4-5-20251001",
+}
 
 
 class Settings(ApiSettings):
@@ -27,51 +33,53 @@ class Settings(ApiSettings):
         description="API key for the LLM provider. Required if llm_provider is set.",
     )
     llm_model: str = Field(
-        default="gpt-4o-mini",
-        description="Model name (e.g., 'gpt-4o-mini', 'claude-sonnet-4-20250514')",
+        default="",
+        description="Model name (e.g., 'gpt-4o-mini', 'claude-sonnet-4-20250514'). "
+        "Defaults to a model suited to the configured provider.",
     )
 
-    # LLM Feature Flags (all default False for backward compatibility)
-    query_expansion_enabled: bool = Field(
-        default=False,
-        description="Enable LLM-powered query expansion",
-    )
-    reranking_enabled: bool = Field(
-        default=False,
-        description="Enable LLM-powered result re-ranking",
-    )
-    date_parsing_enabled: bool = Field(
-        default=False,
-        description="Enable LLM-assisted natural language date parsing",
-    )
-    location_parsing_enabled: bool = Field(
-        default=False,
-        description="Enable LLM-assisted natural language location parsing",
+    llm_timeout: float = Field(
+        default=30.0,
+        gt=0,
+        description="Timeout in seconds for each LLM provider request",
     )
 
     # LLM Tuning Parameters
-    max_expansion_terms: int = Field(
-        default=10,
-        description="Maximum number of expanded terms to generate",
+    discovery_max_terms: int = Field(
+        default=25,
+        ge=1,
+        description="Ceiling on the `max_terms` a client may request from "
+        "POST /discovery/interpret; larger values are rejected with 422",
     )
-    rerank_candidate_count: int = Field(
-        default=50,
-        description="Number of candidates to fetch before re-ranking",
+    discovery_max_scored: int = Field(
+        default=100,
+        ge=1,
+        description="Ceiling on the `max_scored` a client may request from "
+        "POST /discovery/rank; larger values are rejected with 422",
     )
-    rerank_return_count: int = Field(
-        default=10,
-        description="Number of results to return after re-ranking",
+    discovery_max_candidates: int = Field(
+        default=200,
+        ge=1,
+        description="Maximum candidates accepted by POST /discovery/rank; "
+        "larger requests are rejected with 422",
     )
 
     # Geocoding Configuration (for location parsing)
     geocoding_service_url: str | None = Field(
         default=None,
-        description="URL for geocoding API service",
+        description="Base URL of a Nominatim-compatible geocoder. Required for "
+        "location resolution; if unset, locations are not geocoded.",
     )
     geocoding_timeout: float = Field(
         default=10.0,
         description="Timeout in seconds for geocoding requests",
     )
+
+    @model_validator(mode="after")
+    def default_llm_model(self):
+        if not self.llm_model and self.llm_provider:
+            self.llm_model = DEFAULT_LLM_MODELS[self.llm_provider]
+        return self
 
     @field_validator("upstream_api_urls")
     def parse_upstream_api_urls(cls, v):

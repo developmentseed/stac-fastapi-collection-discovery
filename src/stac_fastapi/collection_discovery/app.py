@@ -32,6 +32,11 @@ from stac_fastapi.collection_discovery.core import (
     CollectionSearchClient,
     health_check,
 )
+from stac_fastapi.collection_discovery.discovery import (
+    build_discovery_router,
+    discovery_conformance_classes,
+    discovery_enabled,
+)
 from stac_fastapi.collection_discovery.settings import Settings
 
 # Configure logging
@@ -55,6 +60,13 @@ This API has been pre-configured to search this set of upstream STAC APIs by def
 Users can override this configuration for individual requests by providing their own list
 of APIs using the `apis` query parameter, either as multiple parameters
 (`?apis=url1&apis=url2`) or as a comma-separated string (`?apis=url1,url2`).
+
+## LLM-assisted search
+
+When `LLM_PROVIDER` and `LLM_API_KEY` are configured, two helper endpoints are
+available: `POST /discovery/interpret` turns a natural-language query into
+suggested `q`, `bbox` and `datetime` parameters, and `POST /discovery/rank`
+orders candidate collections by relevance to the original query.
 
 ## Conformance Classes
 
@@ -82,8 +94,6 @@ position across all upstream APIs.
 
 - Free-text search: `GET /collections?q=landsat,sentinel`
 
-- Natural-language (LLM-assisted): `GET /collections?query=wildfires in California 2023`
-
 - Filtered search: `GET /collections?filter=mission='sentinel-2'&filter-lang=cql2-text`
 
 - Paginated search: `GET /collections?token=eyJ...`
@@ -103,17 +113,6 @@ class FederatedApisGetRequest(APIRequest):
         Optional[List[str]],
         Query(
             description="List of STAC APIs to include in the search. Can be provided as multiple query parameters (?apis=url1&apis=url2) or as a comma-separated string (?apis=url1,url2)"  # noqa: E501
-        ),
-    ] = attr.ib(default=None)
-
-    query: Annotated[
-        Optional[str],
-        Query(
-            description="Natural language search query (e.g. 'wildfires in "
-            "California 2023'). When provided, an LLM decomposes it into "
-            "topic/location/date, expands the topic into related search terms, "
-            "and re-ranks results by relevance. Explicit q/bbox/datetime params "
-            "override LLM-derived values. Requires LLM_PROVIDER and LLM_API_KEY."
         ),
     ] = attr.ib(default=None)
 
@@ -164,6 +163,13 @@ class StacCollectionSearchApi(StacApi):
         self.register_landing_page()
         self.register_conformance_classes()
         self.register_get_collections()
+        if discovery_enabled(self.settings):
+            self.register_discovery()
+
+    def register_discovery(self) -> None:
+        """Register POST /discovery/interpret and /discovery/rank (LLM-assisted
+        search). Only called when an LLM provider and API key are configured."""
+        self.router.include_router(build_discovery_router(), tags=["LLM-assisted search"])
 
     def register_landing_page(self) -> None:
         """Register landing page (GET /) with the apis parameter enabled."""
@@ -221,18 +227,12 @@ class StacCollectionSearchApi(StacApi):
         to inject X-Failed-Upstream-Apis header."""
 
         async def get_collections(request: Request, **kwargs) -> JSONResponse:
-            """Custom collections endpoint that injects failure header and
-            assisted-search metadata."""
+            """Custom collections endpoint that injects failure header."""
             result = await self.client.all_collections(request=request, **kwargs)
             body = result.collections
             headers = {}
             if result.failed_apis:
                 headers["X-Failed-Upstream-Apis"] = ",".join(result.failed_apis)
-
-            if result.metadata:
-                # Collections is a TypedDict (plain dict) - copy and extend
-                body = dict(result.collections)
-                body["search_metadata"] = result.metadata
 
             return JSONResponse(content=body, headers=headers)
 
@@ -325,6 +325,7 @@ api = StacCollectionSearchApi(
     extensions=cs_extensions,
     client=CollectionSearchClient(
         base_conformance_classes=COLLECTION_SEARCH_CONFORMANCE_CLASSES
+        + discovery_conformance_classes(settings)
     ),
     settings=settings,
     collections_get_request_model=collections_get_request_model,  # type: ignore[arg-type]

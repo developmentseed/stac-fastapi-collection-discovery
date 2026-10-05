@@ -1,6 +1,13 @@
 import pytest
 import respx
+from fastapi.testclient import TestClient
 from httpx import Response
+
+from stac_fastapi.collection_discovery.discovery import (
+    DISCOVERY_CONFORMANCE_CLASS,
+    DISCOVERY_INTERPRET_REL,
+    DISCOVERY_RANK_REL,
+)
 
 
 class TestApp:
@@ -419,3 +426,72 @@ class TestApp:
         assert "X-Failed-Upstream-Apis" not in response.headers
         data = response.json()
         assert len(data["collections"]) == 4
+
+
+def test_collections_has_no_llm_query_param(test_app):
+    """GET /collections must not expose the prototype `query` mode."""
+    params = test_app.openapi()["paths"]["/collections"]["get"]["parameters"]
+    assert "query" not in {p["name"] for p in params}
+
+
+@pytest.mark.parametrize(
+    ("app_fixture", "expected"),
+    [("test_app", False), ("llm_test_app", True)],
+    ids=["without-llm", "with-llm"],
+)
+def test_discovery_routes_registered_only_with_llm(request, app_fixture, expected):
+    paths = {r.path for r in request.getfixturevalue(app_fixture).routes}
+    assert ("/discovery/interpret" in paths) is expected
+    assert ("/discovery/rank" in paths) is expected
+
+
+def test_discovery_route_404s_without_llm(client):
+    assert client.post("/discovery/interpret", json={"query": "q"}).status_code == 404
+
+
+def _mock_upstream_conformance():
+    for host in ("api1", "api2"):
+        respx.get(f"https://{host}.example.com/conformance").mock(
+            return_value=Response(
+                200,
+                json={
+                    "conformsTo": ["https://api.stacspec.org/v1.0.0/collection-search"]
+                },
+            )
+        )
+
+
+@respx.mock
+def test_discovery_advertised_in_conformance_and_landing_page_with_llm(llm_test_app):
+    _mock_upstream_conformance()
+    client = TestClient(llm_test_app)
+
+    assert DISCOVERY_CONFORMANCE_CLASS in client.get("/conformance").json()["conformsTo"]
+
+    links = client.get("/").json()["links"]
+    by_rel = {link["rel"]: link for link in links}
+    assert by_rel[DISCOVERY_INTERPRET_REL]["method"] == "POST"
+    assert by_rel[DISCOVERY_INTERPRET_REL]["href"].endswith("/discovery/interpret")
+    assert by_rel[DISCOVERY_RANK_REL]["method"] == "POST"
+    assert by_rel[DISCOVERY_RANK_REL]["href"].endswith("/discovery/rank")
+
+
+@respx.mock
+def test_discovery_not_advertised_without_llm(test_app):
+    _mock_upstream_conformance()
+    client = TestClient(test_app)
+
+    assert (
+        DISCOVERY_CONFORMANCE_CLASS not in client.get("/conformance").json()["conformsTo"]
+    )
+    rels = {link["rel"] for link in client.get("/").json()["links"]}
+    assert DISCOVERY_INTERPRET_REL not in rels and DISCOVERY_RANK_REL not in rels
+
+
+def test_openapi_includes_rank_schema_with_llm(llm_test_app):
+    schema = llm_test_app.openapi()
+
+    op = schema["paths"]["/discovery/rank"]["post"]
+    ref = op["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+    name = ref.rsplit("/", 1)[-1]
+    assert "scored_count" in schema["components"]["schemas"][name]["properties"]

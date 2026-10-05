@@ -1,3 +1,4 @@
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -15,19 +16,13 @@ from stac_fastapi.collection_discovery.app import (
     health_check,
 )
 from stac_fastapi.collection_discovery.core import CollectionSearchClient
+from stac_fastapi.collection_discovery.discovery import discovery_conformance_classes
 from stac_fastapi.collection_discovery.settings import Settings
 
 print(collections_get_request_model)
 
 
-@pytest.fixture
-def test_app():
-    """Create a test app instance with mock settings."""
-
-    test_settings = Settings(
-        upstream_api_urls="https://api1.example.com,https://api2.example.com"
-    )
-
+def build_test_app(test_settings: Settings):
     api = StacCollectionSearchApi(
         app=FastAPI(
             openapi_url=test_settings.openapi_url,
@@ -41,6 +36,7 @@ def test_app():
         extensions=cs_extensions,
         client=CollectionSearchClient(
             base_conformance_classes=COLLECTION_SEARCH_CONFORMANCE_CLASSES
+            + discovery_conformance_classes(test_settings)
         ),
         settings=test_settings,
         collections_get_request_model=collections_get_request_model,
@@ -57,8 +53,24 @@ def test_app():
             ),
         ],
     )
-
     return api.app
+
+
+UPSTREAMS = "https://api1.example.com,https://api2.example.com"
+
+
+@pytest.fixture
+def test_app():
+    """Test app with LLM features off."""
+    return build_test_app(Settings(upstream_api_urls=UPSTREAMS))
+
+
+@pytest.fixture
+def llm_test_app():
+    """Test app with LLM features on (discovery routes registered)."""
+    return build_test_app(
+        Settings(upstream_api_urls=UPSTREAMS, llm_provider="openai", llm_api_key="k")
+    )
 
 
 @pytest.fixture
@@ -89,6 +101,9 @@ def mock_request():
         "https://api1.example.com",
         "https://api2.example.com",
     ]
+    # Mock attributes are truthy; keep LLM features off in unrelated tests
+    mock_request.app.state.settings.llm_provider = None
+    mock_request.app.state.settings.llm_api_key = None
     return mock_request
 
 
@@ -151,3 +166,39 @@ def sample_collections_response():
             },
         ],
     }
+
+
+class StubLLMResponse:
+    def __init__(self, content: str):
+        self.content = content
+
+    def parse_json(self):
+        try:
+            return json.loads(self.content)
+        except ValueError:
+            return None
+
+
+class StubLLM:
+    """LLMClient stand-in. `routes` maps a substring of the system prompt to
+    the content returned (dict/list are JSON-encoded, str is returned as-is)."""
+
+    def __init__(self, routes: dict, error: Exception | None = None):
+        self.routes = routes
+        self.error = error
+        self.calls: list[dict] = []
+
+    async def generate(self, prompt, system=None, **kwargs):
+        self.calls.append({"prompt": prompt, "system": system, **kwargs})
+        if self.error:
+            raise self.error
+        for key, content in self.routes.items():
+            if key in (system or ""):
+                body = content if isinstance(content, str) else json.dumps(content)
+                return StubLLMResponse(body)
+        raise AssertionError(f"no stub route for system prompt: {(system or '')[:60]!r}")
+
+
+@pytest.fixture
+def make_stub_llm():
+    return StubLLM
