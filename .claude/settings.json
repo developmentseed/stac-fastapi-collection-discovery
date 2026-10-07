@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "dev-collab-playbook": {
+      "source": {
+        "source": "github",
+        "repo": "NASA-IMPACT/dev-collab-playbook"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "dev-collab-playbook@dev-collab-playbook": true
+  }
+}
