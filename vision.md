@@ -8,10 +8,10 @@ it is about; answer one by rewriting that line in your own words and deleting
 the block. Delete these comments when done.
 -->
 
-Status: draft | agreed | superseded
-Type: operational | exploratory
+Status: draft
+Type: exploratory
 Owner: <who answers for this vision>
-Date: <YYYY-MM-DD>
+Date: 2026-10-02
 
 ## What this project is
 
