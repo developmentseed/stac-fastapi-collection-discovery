@@ -26,7 +26,7 @@ with st.sidebar:
 query = st.text_input(
     "Natural language query",
     "wildfires in California 2023",
-    placeholder="e.g. sea surface temperature in the Gulf of Mexico since 2020",
+    placeholder="e.g. sea surface temperature in the Mediterranean since 2020",
 )
 search = st.button("Search", type="primary")
 
