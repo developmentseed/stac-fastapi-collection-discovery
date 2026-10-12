@@ -186,13 +186,13 @@ class CollectionReranker:
         )
 
     @staticmethod
-    def _parse(parsed: Any, window_size: int) -> dict[int, tuple[float, str]]:
+    def _parse(
+        parsed: dict[str, Any] | list[Any] | None, window_size: int
+    ) -> dict[int, tuple[float, str]]:
         """Map 0-based window index -> (score, reason), ignoring invalid items."""
-        items: Any = []
         if isinstance(parsed, dict):
-            items = parsed.get("ranked") or parsed.get("results") or []
-        elif isinstance(parsed, list):
-            items = parsed
+            parsed = parsed.get("ranked") or parsed.get("results")
+        items: list[Any] = parsed if isinstance(parsed, list) else []
 
         scored: dict[int, tuple[float, str]] = {}
         for item in items:
