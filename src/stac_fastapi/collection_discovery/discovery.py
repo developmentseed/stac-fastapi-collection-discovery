@@ -176,7 +176,7 @@ async def _expand(
     if max_terms <= 1:
         return [topic], []
     try:
-        result = await QueryExpander(llm).expand(topic, max_terms=max_terms - 1)
+        result = await QueryExpander(llm).expand(topic, max_expansions=max_terms - 1)
     except Exception:
         logger.exception("query expansion failed unexpectedly")
         return [topic], ["expansion failed"]

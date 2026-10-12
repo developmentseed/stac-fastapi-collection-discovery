@@ -72,13 +72,13 @@ class QueryExpander:
     async def expand(
         self,
         topic: str,
-        max_terms: int = 5,
+        max_expansions: int = 5,
     ) -> ExpansionResult:
         """Expand a topic into related search terms.
 
         Args:
             topic: The core phenomenon/data type to expand
-            max_terms: Maximum number of expanded terms to generate
+            max_expansions: Maximum number of terms to add beside the topic
 
         Returns:
             ExpansionResult with the topic plus expanded terms
@@ -130,7 +130,7 @@ class QueryExpander:
                 if isinstance(t, str)
                 and (s := sanitize_term(t))
                 and s.lower() != topic.lower()
-            ][:max_terms]
+            ][:max_expansions]
 
             topic_clean = sanitize_term(topic) or topic
             terms = list(dict.fromkeys([topic_clean] + expanded))
