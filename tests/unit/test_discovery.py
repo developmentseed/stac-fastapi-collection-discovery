@@ -521,6 +521,24 @@ def test_discovery_enabled_requires_provider_and_key():
     assert not discovery_enabled(Settings())
 
 
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (None, None),
+        ("", None),
+        ("https://geo.example.com", "https://geo.example.com"),
+        ("https://geo.example.com/", "https://geo.example.com"),
+    ],
+)
+def test_geocoding_service_url_normalized(value, expected):
+    assert Settings(geocoding_service_url=value).geocoding_service_url == expected
+
+
+def test_geocoding_service_url_requires_scheme():
+    with pytest.raises(ValueError, match="http:// or https://"):
+        Settings(geocoding_service_url="geo.example.com")
+
+
 def test_conformance_class_only_when_enabled_and_survives_intersection_filter():
     assert discovery_conformance_classes(Settings()) == []
     enabled = Settings(llm_provider="openai", llm_api_key="k")

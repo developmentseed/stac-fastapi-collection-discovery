@@ -67,8 +67,9 @@ class Settings(ApiSettings):
     # Geocoding Configuration (for location parsing)
     geocoding_service_url: str | None = Field(
         default=None,
-        description="Base URL of a Nominatim-compatible geocoder. Required for "
-        "location resolution; if unset, locations are not geocoded.",
+        description="Optional base URL of a Nominatim-compatible geocoder, used "
+        "to turn place names into a bbox. If unset, /discovery/interpret omits "
+        "bbox and returns a warning.",
     )
     geocoding_timeout: float = Field(
         default=10.0,
@@ -80,6 +81,14 @@ class Settings(ApiSettings):
         if not self.llm_model and self.llm_provider:
             self.llm_model = DEFAULT_LLM_MODELS[self.llm_provider]
         return self
+
+    @field_validator("geocoding_service_url")
+    def check_geocoding_service_url(cls, v):
+        if not v:
+            return None
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("GEOCODING_SERVICE_URL must start with http:// or https://")
+        return v.rstrip("/")
 
     @field_validator("upstream_api_urls")
     def parse_upstream_api_urls(cls, v):
