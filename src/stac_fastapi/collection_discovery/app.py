@@ -36,6 +36,7 @@ from stac_fastapi.collection_discovery.discovery import (
     build_discovery_router,
     discovery_conformance_classes,
     discovery_enabled,
+    geocoding_enabled,
 )
 from stac_fastapi.collection_discovery.settings import Settings
 
@@ -169,7 +170,7 @@ class StacCollectionSearchApi(StacApi):
     def register_discovery(self) -> None:
         """Register POST /discovery/interpret and /discovery/rank (LLM-assisted
         search). Only called when an LLM provider and API key are configured."""
-        if not getattr(self.settings, "geocoding_service_url", None):
+        if not geocoding_enabled(self.settings):
             logger.warning(
                 "GEOCODING_SERVICE_URL is not set: /discovery/interpret will not "
                 "resolve place names to a bbox"

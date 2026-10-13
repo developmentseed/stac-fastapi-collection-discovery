@@ -50,6 +50,11 @@ def discovery_enabled(settings) -> bool:
     return bool(settings.llm_provider and settings.llm_api_key)
 
 
+def geocoding_enabled(settings) -> bool:
+    """Place names resolve to a bbox only when a geocoder URL is set."""
+    return bool(settings.geocoding_service_url)
+
+
 def discovery_conformance_classes(settings) -> list[str]:
     return [DISCOVERY_CONFORMANCE_CLASS] if discovery_enabled(settings) else []
 
