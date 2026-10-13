@@ -1,0 +1,29 @@
+# critique
+
+## vision.md
+
+Read at 6d5a499 on 2026-10-08, plugin 0.0.4.
+
+### Open
+- Q11 What is the experiment meant to learn?: The type is exploratory, and line 12 says "the experiment runs through the Streamlit demo", but the file no longer says what that experiment tests or what result ends it. At 776aab7 this line said it was to learn whether the LLM-assisted search gets scientists to the right collection more often than this API's own federated keyword search, and that a loss meant stopping. That sentence is gone. Was dropping it a decision, and if so, what does the experiment now test, and what result would make you stop?
+- Q12 Shown the right collection, or better than today?: "Presented with" is met as soon as the right collection is anywhere in the list, and "via natural language search" names the method, not the result. Keyword search may already present the right collection for many queries, so this goal could be met without the LLM adding anything. Is the goal that the right collection appears, or that scientists reach it more often or more easily than they do now?
+- C6 An MVP or an experiment?: "MVP" means a first version of a product you intend to ship. The type line and line 12 say this is an experiment. These pull different ways. Two tempting proposals: "add auth, caching and rate limits so the MVP is ready for users" fits an MVP; "build only what the test needs and throw the rest away if it loses" fits an experiment. Which does this file accept, and which does it resist?
+- C7 Can it find words the catalogs never use, with no index?: With no index, candidates come only from the upstream keyword search. In src/stac_fastapi/collection_discovery/pipeline.py the LLM expands the topic into terms (step 4), each term goes to upstream keyword search (step 5), and the re-ranker sees only what that returns (step 6). So a collection is found only if the LLM guesses a word the catalog does use. Does the direction accept that limit, or would a miss here be the reason to drop the no-index non-goal? (Re-asks C5, whose block the developer removed at 6d5a499 with the no-index line unchanged.)
+- Q13 One right collection, or all of them?: The rest of the file says "collection"; this line says "dataset". And "wildfires in 2023" has many fair answers: active fire, burned area, smoke, pre-fire land cover, each in more than one catalog. Does the direction aim to put the single best collection first, or to return every collection that serves the request, ranked?
+
+### Answered
+- Q1 What is this meant to learn?, answered at eb9ff27: "This project exists to learn whether an LLM-assisted, natural-language search across several live STAC APIs gets scientists to the right collection more often than the keyword search each catalog already offers. If it does not, we stop; if it does, we decide whether to run it as a service." (That sentence was removed at 6d5a499; see Q11.)
+- C1 An API, an app, or both?, answered at eb9ff27: "The product is the API: natural-language collection search that any STAC client can use. The Streamlit app is a demo of it, not a product."
+- Q2 Which scientists, and what do they do today?, answered at eb9ff27: "Earth science researchers who know what data they need but not which catalog or collection holds it. Today they search each catalog's portal by hand, one at a time, with keywords."
+- Q4 Item search and your own index, answered at eb9ff27: "Item search is out: we hand the user off to the upstream API for items. We do not keep our own copy or index of upstream catalogs; every search queries the live APIs."
+- Q5 What rules approaches out?, answered at eb9ff27: "It must stay a valid STAC API so existing STAC clients work against it. It may depend on a hosted LLM while it is exploratory. It cannot require any change to the upstream catalogs."
+- C3 Who stands between the API and the scientist?, answered at 776aab7: "The experiment runs through the Streamlit demo, kept to a query box, the ranked list and each match's reason, so what is judged is the API's ranking."
+- Q3 Which of these are outcomes?, answered at 776aab7: "Scientists reach the right collection(s)"
+- C2 Is "semantic search" the goal or one method?, answered at 776aab7: "This project exists to learn whether an LLM-assisted, natural-language search across several live STAC APIs gets scientists to the right collection more often than this API's own federated keyword search over the same catalogs, so a win is credited to the LLM and nothing else."
+- Q6 Do they want catalogs, or data?, answered at 776aab7: "Our user wants data, not catalogs; that the search spans several catalogs is our concern, not theirs."
+- Q7 Which community?, answered at 776aab7 (the developer removed "one community", so the contradiction is gone): "Earth science researchers who know what data they need but not which catalog or collection holds it."
+- Q8 Reach it, or reach it more often?, closed at 6d5a499: the developer removed the comparison from line 10 and rewrote the goal as "Scientists a presented with the right collection(s) via natural language search." The gap moved; re-asked as Q11 and Q12.
+- C4 The reason is shown, so is it judged?, answered at 6d5a499 (block removed, line kept as the decision): "so what is judged is the API's ranking. The reason for each match is extra, and the result must stand without it."
+- C5 Can it find words the catalogs never use, with no index?, closed at 6d5a499: block removed with the no-index line unchanged; re-asked as C7.
+- Q9 Is a collection enough for someone who wants data?, answered at 6d5a499: "Reaching the right collection is the whole job. Once the user has it, the upstream catalog's own tools get them the data, and we do not try to do that better."
+- Q10 Is running it as a service out for now?, answered at 6d5a499: "Building is minimal as this is an MVP for now." (The word "MVP" raised C6.)
