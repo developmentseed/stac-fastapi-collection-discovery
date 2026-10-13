@@ -495,3 +495,8 @@ def test_openapi_includes_rank_schema_with_llm(llm_test_app):
     ref = op["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
     name = ref.rsplit("/", 1)[-1]
     assert "scored_count" in schema["components"]["schemas"][name]["properties"]
+
+
+def test_warns_at_startup_when_discovery_has_no_geocoder(caplog, llm_test_app):
+    warnings = [r.getMessage() for r in caplog.get_records("setup")]
+    assert any("GEOCODING_SERVICE_URL is not set" in w for w in warnings)

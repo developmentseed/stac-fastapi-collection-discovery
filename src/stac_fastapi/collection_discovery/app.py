@@ -169,6 +169,11 @@ class StacCollectionSearchApi(StacApi):
     def register_discovery(self) -> None:
         """Register POST /discovery/interpret and /discovery/rank (LLM-assisted
         search). Only called when an LLM provider and API key are configured."""
+        if not getattr(self.settings, "geocoding_service_url", None):
+            logger.warning(
+                "GEOCODING_SERVICE_URL is not set: /discovery/interpret will not "
+                "resolve place names to a bbox"
+            )
         self.router.include_router(build_discovery_router(), tags=["LLM-assisted search"])
 
     def register_landing_page(self) -> None:

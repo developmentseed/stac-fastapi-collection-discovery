@@ -43,12 +43,19 @@ This will bring the API up at `http://localhost:8000` and a STAC Browser instanc
 
 ## LLM-assisted search
 
-When `LLM_PROVIDER` and `LLM_API_KEY` are configured (and, for place names,
-`GEOCODING_SERVICE_URL`), two helper endpoints are available. They are stateless;
-the client performs the search itself. The provider SDKs are an optional extra:
-install them with `uv sync --extra llm` (or
+When `LLM_PROVIDER` and `LLM_API_KEY` are configured, two helper endpoints are
+available. They are stateless; the client performs the search itself. The provider
+SDKs are an optional extra: install them with `uv sync --extra llm` (or
 `pip install "stac-fastapi-collection-discovery[llm]"`); the Docker image already
 includes them.
+
+`GEOCODING_SERVICE_URL` is the base URL of a Nominatim-compatible geocoder used to
+turn place names into a `bbox`. It is optional; without it `/discovery/interpret`
+omits `bbox` and returns a warning, and the server logs a warning at startup. For
+local testing you can use `https://nominatim.openstreetmap.org`, subject to its
+[usage policy](https://operations.osmfoundation.org/policies/nominatim/) (max 1
+request per second, attribution required); production deployments should run their
+own instance.
 
 1. `POST /discovery/interpret` with `{"query": "wildfires in California 2023"}`
    returns `{"q": [...], "bbox": [...], "datetime": "...", "warnings": []}`.
