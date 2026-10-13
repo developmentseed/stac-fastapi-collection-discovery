@@ -83,7 +83,19 @@ def discovery_links(base_url: str) -> list[dict]:
 class _QueryModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    query: Annotated[str, Field(min_length=1, max_length=MAX_QUERY_LENGTH)]
+    query: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=MAX_QUERY_LENGTH,
+            description=(
+                "Natural language query describing the desired collections. "
+                "May include a topic, location, and time period. Leading and "
+                "trailing whitespace is removed; blank queries are rejected."
+            ),
+            examples=["Sentinel-2 imagery over Kenya during 2023"],
+        ),
+    ]
 
     @field_validator("query")
     @classmethod
@@ -109,7 +121,27 @@ def _effective_limit(requested: int | None, default: int, ceiling: int, name: st
 class InterpretRequest(_QueryModel):
     """Natural language query to interpret."""
 
-    max_terms: Annotated[int, Field(ge=1)] | None = None
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"query": "Sentinel-2 imagery over Kenya during 2023", "max_terms": 5}
+            ]
+        }
+    )
+
+    max_terms: Annotated[
+        int | None,
+        Field(
+            ge=1,
+            description=(
+                "Maximum number of search terms to return, including the "
+                f"original topic. Omit or set to null to use {DEFAULT_MAX_TERMS}, "
+                "capped by the server's configured maximum. Explicit values "
+                "above that maximum return HTTP 422."
+            ),
+            examples=[5],
+        ),
+    ] = None
 
 
 class InterpretResponse(BaseModel):
@@ -126,19 +158,79 @@ class RankCandidateIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: Annotated[str, Field(min_length=1, max_length=500)]
-    ref: Annotated[str, Field(min_length=1, max_length=2000)] | None = None
-    title: Annotated[str, Field(max_length=1000)] | None = None
-    matched_terms: Annotated[list[str], Field(max_length=50)] = Field(
-        default_factory=list
-    )
+    id: Annotated[str, Field(min_length=1, max_length=500, description="Collection id.")]
+    ref: Annotated[
+        str | None,
+        Field(
+            min_length=1,
+            max_length=2000,
+            description=(
+                "Unique reference echoed back in the result, e.g. the "
+                "collection's self link. Defaults to `id`; must be unique "
+                "across candidates."
+            ),
+        ),
+    ] = None
+    title: Annotated[
+        str | None, Field(max_length=1000, description="Collection title.")
+    ] = None
+    matched_terms: Annotated[
+        list[str],
+        Field(
+            max_length=50,
+            description=(
+                "Search terms that returned this collection. Candidates matched "
+                "by more terms are scored first."
+            ),
+        ),
+    ] = Field(default_factory=list)
 
 
 class RankRequest(_QueryModel):
     """Original query plus the candidate collections to rank."""
 
-    candidates: list[RankCandidateIn]
-    max_scored: Annotated[int, Field(ge=1)] | None = None
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "query": "Sentinel-2 imagery over Kenya during 2023",
+                    "candidates": [
+                        {
+                            "id": "sentinel-2-l2a",
+                            "ref": "https://stac.example.com/collections/sentinel-2-l2a",
+                            "title": "Sentinel-2 Level-2A",
+                            "matched_terms": ["Sentinel-2", "multispectral imagery"],
+                        }
+                    ],
+                    "max_scored": 50,
+                }
+            ]
+        }
+    )
+
+    candidates: Annotated[
+        list[RankCandidateIn],
+        Field(
+            description=(
+                "Candidate collections to rank, merged from the client's "
+                "searches. More than the server's configured maximum returns "
+                "HTTP 422."
+            ),
+        ),
+    ]
+    max_scored: Annotated[
+        int | None,
+        Field(
+            ge=1,
+            description=(
+                "Number of candidates, by term coverage, scored by the LLM; "
+                "the rest are returned unscored. Omit or set to null to use "
+                f"{DEFAULT_MAX_SCORED}, capped by the server's configured "
+                "maximum. Explicit values above that maximum return HTTP 422."
+            ),
+            examples=[50],
+        ),
+    ] = None
 
 
 class RankResponse(BaseModel):
