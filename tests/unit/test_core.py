@@ -1,9 +1,12 @@
 import base64
 import copy
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import respx
 from httpx import Response
+
+from stac_fastapi.collection_discovery.core import _quote_multiword_q
 
 
 class TestCollectionSearchClient:
@@ -675,3 +678,107 @@ class TestCollectionSearchClient:
 
         with pytest.raises(NotImplementedError):
             await collection_search_client.item_collection()
+
+
+@pytest.mark.parametrize(
+    "query, expected_q",
+    [
+        ("q=burned area&limit=10", ['"burned area"']),
+        ("q=burned+area&q=fire", ['"burned area"', "fire"]),
+        ("q=burned area,fire", ['"burned area",fire']),
+        ("q=fire", None),
+        ('q="burned area"', None),
+        ("limit=10", None),
+    ],
+)
+def test_quote_multiword_q(query, expected_q):
+    result = _quote_multiword_q(f"https://veda.example.com/collections?{query}")
+    if expected_q is None:
+        assert result is None
+        return
+    params = parse_qs(urlsplit(result).query)
+    assert params.pop("q") == expected_q
+    assert params == {k: v for k, v in parse_qs(query).items() if k != "q"}
+
+
+def _veda_like(sample):
+    """Upstream that 500s on unquoted multiword q, like openveda."""
+
+    def handler(request):
+        q = request.url.params.get("q", "")
+        if " " in q and not q.startswith('"'):
+            return Response(500, json={"detail": "Internal Server Error"})
+        return Response(200, json=sample)
+
+    return handler
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_multiword_q_retried_quoted_after_upstream_error(
+    collection_search_client, mock_request, sample_collections_response
+):
+    route1 = respx.get("https://api1.example.com/collections").mock(
+        side_effect=_veda_like(sample_collections_response)
+    )
+    route2 = respx.get("https://api2.example.com/collections").mock(
+        return_value=Response(200, json=sample_collections_response)
+    )
+
+    result = await collection_search_client.all_collections(
+        request=mock_request, q=["burned area"]
+    )
+
+    assert result.failed_apis == []
+    assert result.collections["numberReturned"] == 4
+    assert [c.request.url.params["q"] for c in route1.calls] == [
+        "burned area",
+        '"burned area"',
+    ]
+    assert route2.call_count == 1  # accepted the unquoted phrase; never retried
+    canonical = next(
+        link["href"]
+        for link in result.collections["links"]
+        if link["rel"] == "canonical" and "api1" in link["href"]
+    )
+    assert parse_qs(urlsplit(canonical).query)["q"] == ['"burned area"']
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_single_word_q_error_not_retried(
+    collection_search_client, mock_request, sample_collections_response
+):
+    route1 = respx.get("https://api1.example.com/collections").mock(
+        return_value=Response(500, json={"detail": "Internal Server Error"})
+    )
+    respx.get("https://api2.example.com/collections").mock(
+        return_value=Response(200, json=sample_collections_response)
+    )
+
+    result = await collection_search_client.all_collections(
+        request=mock_request, q=["fire"]
+    )
+
+    assert route1.call_count == 1
+    assert result.failed_apis == ["https://api1.example.com"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_multiword_q_retry_that_also_fails_reports_api(
+    collection_search_client, mock_request, sample_collections_response
+):
+    route1 = respx.get("https://api1.example.com/collections").mock(
+        return_value=Response(500, json={"detail": "Internal Server Error"})
+    )
+    respx.get("https://api2.example.com/collections").mock(
+        return_value=Response(200, json=sample_collections_response)
+    )
+
+    result = await collection_search_client.all_collections(
+        request=mock_request, q=["burned area"]
+    )
+
+    assert route1.call_count == 2
+    assert result.failed_apis == ["https://api1.example.com"]

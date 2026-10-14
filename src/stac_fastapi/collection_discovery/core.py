@@ -4,11 +4,11 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import Annotated, Any
-from urllib.parse import unquote, urlencode, urljoin
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit
 
 import attr
 from fastapi import HTTPException, Query, Request
-from httpx import AsyncClient, HTTPStatusError
+from httpx import AsyncClient, HTTPStatusError, Response
 from pydantic import BaseModel
 from stac_fastapi.types.conformance import OAFConformanceClasses, STACConformanceClasses
 from stac_fastapi.types.core import AsyncBaseCoreClient
@@ -37,6 +37,48 @@ def _robust_urljoin(base: str, path: str) -> str:
     if not base.endswith("/"):
         base += "/"
     return urljoin(base, path)
+
+
+def _quote_term(term: str) -> str:
+    """Wrap a multi-word term in double quotes, unless it already is."""
+    stripped = term.strip()
+    if len(stripped.split()) > 1 and not stripped.startswith('"'):
+        return f'"{stripped}"'
+    return term
+
+
+def _quote_multiword_q(url: str) -> str | None:
+    """Return ``url`` with multi-word ``q`` terms wrapped in double quotes, or
+    None if there is nothing to quote.
+
+    Some upstreams (e.g. openveda) return 500 for an unquoted multi-word ``q``
+    but accept the quoted phrase. Others accept the bare phrase, so this is
+    only used to retry after an error, never up front.
+    """
+    parts = urlsplit(url)
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    quoted = [
+        (key, ",".join(map(_quote_term, value.split(","))) if key == "q" else value)
+        for key, value in params
+    ]
+    if quoted == params:
+        return None
+    return parts._replace(query=urlencode(quoted)).geturl()
+
+
+async def _get_with_quoted_retry(
+    client: AsyncClient, api: str, url: str
+) -> tuple[str, Response]:
+    """GET ``url``; on an error status, retry once with multi-word ``q`` terms
+    quoted. Returns the URL actually used and its response."""
+    response = await client.get(url)
+    if response.is_error and (retry_url := _quote_multiword_q(url)):
+        logger.info(
+            f"Retrying {api} with quoted multi-word q after "
+            f"status_code={response.status_code}"
+        )
+        return retry_url, await client.get(retry_url)
+    return url, response
 
 
 COLLECTION_SEARCH_CONFORMANCE_CLASSES = [
@@ -277,11 +319,11 @@ class CollectionSearchClient(AsyncBaseCoreClient):
         async def fetch_api_data(
             client: AsyncClient, api: str, url: str
         ) -> tuple[str, dict[str, Any]]:
-            """Fetch data from a single API endpoint."""
-            api_request = await client.get(url)
+            """Fetch data from a single API endpoint, returning the URL that
+            succeeded and its JSON."""
+            url, api_request = await _get_with_quoted_retry(client, api, url)
             api_request.raise_for_status()
-            json_response = api_request.json()
-            return api, json_response
+            return url, api_request.json()
 
         async with AsyncClient(timeout=HTTPX_TIMEOUT) as client:
             current_urls = search_state.get("current", search_state.get("next", {}))
@@ -317,7 +359,7 @@ class CollectionSearchClient(AsyncBaseCoreClient):
                     continue
 
                 assert isinstance(result, tuple)
-                json_response = result[1]
+                url, json_response = result  # url may be the quoted retry
                 collections_count = len(json_response["collections"])
                 logger.info(f"Received {collections_count} collections from {api}")
 
