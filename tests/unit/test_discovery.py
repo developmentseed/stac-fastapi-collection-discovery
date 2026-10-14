@@ -516,9 +516,20 @@ def test_interpret_component_error_text_is_not_leaked(make_stub_llm):
 
 def test_discovery_enabled_requires_provider_and_key():
     assert discovery_enabled(Settings(llm_provider="openai", llm_api_key="k"))
-    assert not discovery_enabled(Settings(llm_provider="openai"))
-    assert not discovery_enabled(Settings(llm_api_key="k"))
     assert not discovery_enabled(Settings())
+
+
+@pytest.mark.parametrize(
+    "kwargs, missing",
+    [
+        ({"llm_provider": "openai"}, "LLM_API_KEY"),
+        ({"llm_provider": "openai", "llm_api_key": ""}, "LLM_API_KEY"),
+        ({"llm_api_key": "k"}, "LLM_PROVIDER"),
+    ],
+)
+def test_llm_provider_and_key_required_together(kwargs, missing):
+    with pytest.raises(ValueError, match=f"{missing} is required"):
+        Settings(**kwargs)
 
 
 @pytest.mark.parametrize(

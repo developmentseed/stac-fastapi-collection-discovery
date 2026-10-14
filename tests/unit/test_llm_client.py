@@ -38,11 +38,11 @@ def test_settings_default_timeout_and_validation():
     "provider, prefix", [("openai", "gpt-"), ("anthropic", "claude-")]
 )
 def test_settings_default_model_matches_provider(provider, prefix):
-    assert Settings(llm_provider=provider).llm_model.startswith(prefix)
+    assert Settings(llm_provider=provider, llm_api_key="k").llm_model.startswith(prefix)
 
 
 def test_settings_explicit_model_is_kept():
-    settings = Settings(llm_provider="anthropic", llm_model="my-model")
+    settings = Settings(llm_provider="anthropic", llm_api_key="k", llm_model="my-model")
     assert settings.llm_model == "my-model"
 
 

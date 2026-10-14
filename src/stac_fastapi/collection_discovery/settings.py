@@ -77,7 +77,11 @@ class Settings(ApiSettings):
     )
 
     @model_validator(mode="after")
-    def default_llm_model(self):
+    def check_llm_config(self):
+        if self.llm_provider and not self.llm_api_key:
+            raise ValueError("LLM_API_KEY is required when LLM_PROVIDER is set")
+        if self.llm_api_key and not self.llm_provider:
+            raise ValueError("LLM_PROVIDER is required when LLM_API_KEY is set")
         if not self.llm_model and self.llm_provider:
             self.llm_model = DEFAULT_LLM_MODELS[self.llm_provider]
         return self
