@@ -562,13 +562,20 @@ def test_discovery_links_are_post_links_under_base_url():
     links = discovery_links("http://localhost:8080/")
     assert {link["href"] for link in links} == {
         "http://localhost:8080/discovery/interpret",
+        "http://localhost:8080/discovery/search",
         "http://localhost:8080/discovery/rank",
     }
     assert all(link["method"] == "POST" for link in links)
 
 
 @pytest.mark.parametrize(
-    "field", ["discovery_max_terms", "discovery_max_scored", "discovery_max_candidates"]
+    "field",
+    [
+        "discovery_max_terms",
+        "discovery_max_scored",
+        "discovery_max_candidates",
+        "discovery_max_pages",
+    ],
 )
 def test_discovery_ceiling_settings_must_be_positive(field):
     with pytest.raises(ValueError):

@@ -7,6 +7,7 @@ from stac_fastapi.collection_discovery.discovery import (
     DISCOVERY_CONFORMANCE_CLASS,
     DISCOVERY_INTERPRET_REL,
     DISCOVERY_RANK_REL,
+    DISCOVERY_SEARCH_REL,
 )
 
 
@@ -442,6 +443,7 @@ def test_collections_has_no_llm_query_param(test_app):
 def test_discovery_routes_registered_only_with_llm(request, app_fixture, expected):
     paths = {r.path for r in request.getfixturevalue(app_fixture).routes}
     assert ("/discovery/interpret" in paths) is expected
+    assert ("/discovery/search" in paths) is expected
     assert ("/discovery/rank" in paths) is expected
 
 
@@ -474,6 +476,7 @@ def test_discovery_advertised_in_conformance_and_landing_page_with_llm(llm_test_
     assert by_rel[DISCOVERY_INTERPRET_REL]["href"].endswith("/discovery/interpret")
     assert by_rel[DISCOVERY_RANK_REL]["method"] == "POST"
     assert by_rel[DISCOVERY_RANK_REL]["href"].endswith("/discovery/rank")
+    assert by_rel[DISCOVERY_SEARCH_REL]["href"].endswith("/discovery/search")
 
 
 @respx.mock

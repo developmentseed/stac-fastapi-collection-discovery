@@ -64,9 +64,10 @@ of APIs using the `apis` query parameter, either as multiple parameters
 
 ## LLM-assisted search
 
-When `LLM_PROVIDER` and `LLM_API_KEY` are configured, two helper endpoints are
+When `LLM_PROVIDER` and `LLM_API_KEY` are configured, three helper endpoints are
 available: `POST /discovery/interpret` turns a natural-language query into
-suggested `q`, `bbox` and `datetime` parameters, and `POST /discovery/rank`
+suggested `q`, `bbox` and `datetime` parameters, `POST /discovery/search` searches
+each term and merges the results into candidates, and `POST /discovery/rank`
 orders candidate collections by relevance to the original query.
 
 ## Conformance Classes
@@ -168,13 +169,15 @@ class StacCollectionSearchApi(StacApi):
             self.register_discovery()
 
     def register_discovery(self) -> None:
-        """Register POST /discovery/interpret and /discovery/rank (LLM-assisted
-        search). Only called when an LLM provider and API key are configured."""
+        """Register POST /discovery/interpret, /discovery/search and
+        /discovery/rank (LLM-assisted search). Only called when an LLM provider
+        and API key are configured."""
         if not geocoding_enabled(self.settings):
             logger.warning(
                 "GEOCODING_SERVICE_URL is not set: /discovery/interpret will not "
                 "resolve place names to a bbox"
             )
+        self.app.state.search_client = self.client
         self.router.include_router(build_discovery_router(), tags=["LLM-assisted search"])
 
     def register_landing_page(self) -> None:

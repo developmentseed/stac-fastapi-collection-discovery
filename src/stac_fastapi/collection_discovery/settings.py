@@ -63,6 +63,12 @@ class Settings(ApiSettings):
         description="Maximum candidates accepted by POST /discovery/rank; "
         "larger requests are rejected with 422",
     )
+    discovery_max_pages: int = Field(
+        default=5,
+        ge=1,
+        description="Ceiling on the `max_pages` a client may request from "
+        "POST /discovery/search; larger values are rejected with 422",
+    )
 
     # Geocoding Configuration (for location parsing)
     geocoding_service_url: str | None = Field(
