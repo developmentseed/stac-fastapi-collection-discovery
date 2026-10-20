@@ -13,6 +13,13 @@ This spec replaces that design with a small family of composable endpoints under
 `/discovery`. The LLM-backed steps that already exist (`llm/*`) are kept; the
 server-side orchestration around them is removed. The client performs the search.
 
+Amendment (review of this PR): with only `interpret` and `rank`, the per-term
+fan-out, merge and `matched_terms` tracking existed only in the reference
+client (`streamlit_app.py`), so every client had to re-implement the step that
+feeds the pre-sort. An optional, non-LLM `POST /discovery/search` now performs
+that step server-side. The split is kept: `interpret`, `search` and `rank` are
+independent calls, and a client may still search `GET /collections` itself.
+
 ## Goals
 
 - **Primary:** Expose LLM query interpretation and LLM ranking as two
@@ -20,19 +27,61 @@ server-side orchestration around them is removed. The client performs the search
 - **Secondary:** Return `GET /collections` to its pre-prototype behaviour; it
   has no LLM mode.
 - **Tertiary:** Preserve the term-coverage pre-sort from commit `6d3cc4a`, now
-  fed by client-reported `matched_terms`.
-- **Non-goal:** An all-in-one search endpoint. If round-trip latency proves
-  too high, a separate `/discover` endpoint may be added later; it is not part
-  of this work.
+  fed by `matched_terms` computed by `/discovery/search` or reported by the
+  client.
+- **Quaternary:** One server-side implementation of the per-term fan-out,
+  merge and `matched_terms` tracking (`POST /discovery/search`), so clients do
+  not have to write it.
+- **Non-goal:** An all-in-one search endpoint (interpret, search and rank in
+  one call). If round-trip latency proves too high, a separate `/discover`
+  endpoint may be added later; it is not part of this work.
+- **Non-goal:** Cross-upstream deduplication of the same collection served
+  under different URLs (e.g. CMR `ALL` and `LPCLOUD`); identity is the `self`
+  link.
 - **Non-goal:** Rate limiting or authentication for the new endpoints.
 - **Non-goal:** Server-side pagination of ranked results (the client
   paginates its own ordered list).
 
 ## Client flow
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant D as /discovery
+    participant S as GET /collections
+    participant U as Upstream STAC APIs
+
+    C->>D: POST /interpret {query}
+    D-->>C: {q, bbox, datetime, warnings}
+
+    alt Path A (recommended)
+        C->>D: POST /search {q, bbox, datetime, limit, max_pages}
+        loop each term (≤4 at once), each page ≤ max_pages
+            D->>U: federated search q=term
+            U-->>D: collections + next
+        end
+        D-->>C: {candidates with matched_terms, failed, warnings}
+    else Path B (client merges)
+        loop each term, each page
+            C->>S: GET /collections?q=term&...
+            S->>U: federated search
+            U-->>S: collections
+            S-->>C: collections + next
+        end
+        Note over C: merge by self link, record matched_terms
+    end
+
+    C->>D: POST /rank {query, candidates}
+    D-->>C: {ranked, scored_count, unscored_count}
+    Note over C: display by score, paginate locally
+```
+
 1. User submits a natural-language query.
 2. `POST /discovery/interpret` -> `{q: [...], bbox, datetime}`.
-3. For each term in `q`, `GET /collections?q=<term>&bbox=..&datetime=..&limit=<page>`
+3. Either (recommended) `POST /discovery/search` with `q`, `bbox` and
+   `datetime`, which returns rank-ready candidates with server-computed
+   `matched_terms` (see below), or the client does the equivalent itself:
+   for each term in `q`, `GET /collections?q=<term>&bbox=..&datetime=..&limit=<page>`
    (overfetch), following `next` tokens up to a client-chosen total. The client
    merges results by collection identity and records, per collection, every
    term that returned it (`matched_terms`).
@@ -49,11 +98,12 @@ server-side orchestration around them is removed. The client performs the search
 
 One request per term (rather than a comma-joined `q`) is deliberate: upstream
 APIs interpret multi-term `q` differently, and the per-term hits are the signal
-used for pre-sorting.
+used for pre-sorting. `/discovery/search` keeps this rule; it moves the work to
+the server, it does not change it.
 
 ## Endpoints
 
-Both are registered on a `/discovery` router **only when `llm_provider` and
+All three are registered on a `/discovery` router **only when `llm_provider` and
 `llm_api_key` are set**; otherwise the routes do not exist (404). A conformance
 class and landing-page links advertise them so clients can detect the feature.
 
@@ -174,7 +224,7 @@ ceiling:
 - Terms: the `interpret` request's `max_terms` (default 10), at most
   `discovery_max_terms` (default 25).
 - Request size: at most `discovery_max_candidates` candidates per `rank`
-  request (default 200). Because candidates are slim, 200 is on the order of
+  request (default 200); `search` returns at most this many. Because candidates are slim, 200 is on the order of
   tens of KB.
 - All three settings have `ge=1`. The defaults 10 and 50 are constants in
   `discovery.py`, not settings.
@@ -190,16 +240,91 @@ ceiling:
 - `reason` strings are LLM-generated plain text; clients must escape them
   before rendering as HTML.
 
+### `POST /discovery/search`
+
+The server-side version of client flow step 3. It makes no LLM call; it is
+registered with the other discovery endpoints so the family is detected
+together.
+
+Request (field names match the `interpret` response, so a client copies `q`,
+`bbox` and `datetime` across):
+
+```json
+{
+  "q": ["wildfire", "burned area", "fire"],
+  "bbox": [-124.48, 32.53, -114.13, 42.01],
+  "datetime": "2023-01-01T00:00:00Z/2023-12-31T23:59:59Z",
+  "limit": 100,
+  "max_pages": 2,
+  "apis": ["https://api.example/"],
+  "include_collections": false
+}
+```
+
+- `q`: list of terms, at most `discovery_max_terms`. Empty or omitted means one
+  search without `q` (bbox/datetime only); blank terms are rejected and
+  repeated terms are searched once.
+- `bbox`, `datetime`, `apis`: passed to `GET /collections` unchanged; `apis`
+  defaults to the configured upstreams.
+- `limit`: per-upstream page size (default 100, 1 to 1000).
+- `max_pages`: pages followed per term via `next` (default 2), at most the
+  operator ceiling `discovery_max_pages` (default 5), `422` above it.
+- `include_collections`: when true, the full collection objects are returned
+  alongside the candidates (for display). Default false, because they can be
+  megabytes.
+- Unknown fields are rejected (`422`).
+
+Behaviour:
+
+1. One federated search per term through the same code as `GET /collections`
+   (called in-process, so the multi-word `q` retry and failure handling
+   apply). Terms run concurrently, at most 4 at a time; each term follows
+   `next` up to `max_pages`.
+2. Results are merged by `ref`: the collection's `self` link, else its `id`.
+   Each candidate's `matched_terms` lists, in `q` order, the terms that
+   returned it (empty for the no-`q` search).
+3. Candidates are stable-sorted by `len(matched_terms)` descending (first-seen
+   order breaks ties) and truncated to `discovery_max_candidates`, so the
+   response can be sent to `rank` as is. Truncation adds a warning.
+4. An upstream that fails for a term is reported in `failed` as
+   `{"api", "term"}`; the other terms and upstreams still return. The response
+   is `200` even if everything failed.
+
+Response `200`:
+
+```json
+{
+  "candidates": [
+    {
+      "ref": "https://api.example/collections/landsat-c2",
+      "id": "landsat-c2",
+      "title": "Landsat Collection 2",
+      "matched_terms": ["wildfire", "fire"]
+    }
+  ],
+  "found_count": 1,
+  "failed": [{ "api": "https://other.example/", "term": "burned area" }],
+  "collections": null,
+  "warnings": []
+}
+```
+
+- `candidates` have exactly the `rank` candidate fields.
+- `found_count` is the number of unique collections before truncation.
+- `collections` maps `ref` to the full collection object when
+  `include_collections` is true, else `null`.
+
 ## Changes to existing code
 
 **Add**
-- `discovery.py` (router, request/response models, handlers), registered from
+- `discovery.py` (router, request/response models, handlers; `search` calls
+  the app's `CollectionSearchClient.all_collections`), registered from
   `StacCollectionSearchApi` using the `APIRouter` pattern already used for the
   `/_mgmt` endpoints.
 - Conformance class and landing-page links for the discovery endpoints.
 - Operator ceiling settings `discovery_max_terms`, `discovery_max_scored`,
   `discovery_max_candidates` (these replace `max_expansion_terms`,
-  `rerank_candidate_count` and `rerank_max_request_candidates`).
+  `rerank_candidate_count` and `rerank_max_request_candidates`), plus `discovery_max_pages` for `search`.
 - No change to `GET /collections` is needed for source identity: upstream
   collections already carry a `self` link (see Client flow).
 
@@ -218,8 +343,8 @@ ceiling:
   `date_parsing_enabled`, `location_parsing_enabled`, and `rerank_return_count`.
   Steps are gated only on the LLM being configured.
 - Root-level `test_*.py` scripts; `streamlit_app.py` is rewritten as a
-  reference client following the flow above (or removed, at the reviewer's
-  preference).
+  reference client following the flow above, calling `/discovery/search`
+  rather than merging results itself.
 
 ## Testing
 
@@ -233,6 +358,11 @@ ceiling:
   - `GET /collections` has no `query` param and unchanged behaviour.
   - Geocoding disabled (no `geocoding_service_url`) -> `bbox: null` + warning.
   - `rank` rejects full collection objects and unknown fields (422).
+  - `search` (upstreams mocked with `respx`): merge by `self` link with
+    `matched_terms` in `q` order; fallback to `id`; coverage sort and
+    truncation warning; paging up to `max_pages`; per-(api, term) failures;
+    no-`q` search; `include_collections`; `max_pages`/`q` ceilings (422);
+    output accepted by `rank` unchanged.
 - Reranker unit tests replace the old pipeline/rerank script coverage.
 - The existing live-API integration test is untouched.
 
@@ -241,15 +371,17 @@ ceiling:
 - Latency: three sequential hops plus N per-term `/collections` calls. Term
   requests run in parallel client-side; revisit a `/discover` all-in-one
   endpoint if measured latency is unacceptable.
-- Client complexity: per-term fan-out, merge and dedupe move to the client.
-  The reference client in this repo documents the pattern.
+- Client complexity: addressed by `/discovery/search`. Clients that search
+  `/collections` directly still own the merge.
 - Both endpoints spend LLM tokens without authentication. The request-size cap
   and per-call LLM timeouts bound per-call cost, but not call volume; rate
   limiting is left to deployment. `interpret` is a pure function of the query,
   so a small in-process cache keyed on the normalized query is cheap to add and
   is recommended.
-- Load: each per-term `GET /collections` federates to every upstream, so N terms
-  means N times the upstream calls, issued by the client.
+- Load: each per-term search federates to every upstream, so one `search`
+  call can make up to terms x pages x upstreams requests (25 x 5 x upstreams at
+  the ceilings). The ceilings and the 4-term concurrency bound it; `search` is
+  unauthenticated like the rest, so rate limiting is left to deployment.
 - Ranking quality is judged on id and title only; adding a truncated
   description or keywords is a possible follow-up at a token cost. Stubbed-LLM
   tests prove behaviour, not relevance; a small fixed set of queries with
