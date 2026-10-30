@@ -12,7 +12,10 @@ from stac_fastapi.api.routes import create_async_endpoint
 from stac_fastapi.extensions.collection_search import CollectionSearchExtension
 from stac_fastapi.extensions.fields import FieldsConformanceClasses, FieldsExtension
 from stac_fastapi.extensions.filter import CollectionSearchFilterExtension
-from stac_fastapi.extensions.free_text import FreeTextConformanceClasses, FreeTextExtension
+from stac_fastapi.extensions.free_text import (
+    FreeTextConformanceClasses,
+    FreeTextExtension,
+)
 from stac_fastapi.extensions.pagination import TokenPaginationExtension
 from stac_fastapi.extensions.sort import SortConformanceClasses, SortExtension
 from stac_fastapi.types.extension import ApiExtension
