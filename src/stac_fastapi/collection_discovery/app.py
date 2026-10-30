@@ -9,17 +9,12 @@ from stac_fastapi.api.app import StacApi
 from stac_fastapi.api.middleware import CORSMiddleware, ProxyHeaderMiddleware
 from stac_fastapi.api.models import HealthCheck, JSONResponse
 from stac_fastapi.api.routes import create_async_endpoint
-from stac_fastapi.extensions.core import (
-    CollectionSearchExtension,
-    CollectionSearchFilterExtension,
-    FieldsExtension,
-    FreeTextExtension,
-    SortExtension,
-    TokenPaginationExtension,
-)
-from stac_fastapi.extensions.core.fields import FieldsConformanceClasses
-from stac_fastapi.extensions.core.free_text import FreeTextConformanceClasses
-from stac_fastapi.extensions.core.sort import SortConformanceClasses
+from stac_fastapi.extensions.collection_search import CollectionSearchExtension
+from stac_fastapi.extensions.fields import FieldsConformanceClasses, FieldsExtension
+from stac_fastapi.extensions.filter import CollectionSearchFilterExtension
+from stac_fastapi.extensions.free_text import FreeTextConformanceClasses, FreeTextExtension
+from stac_fastapi.extensions.pagination import TokenPaginationExtension
+from stac_fastapi.extensions.sort import SortConformanceClasses, SortExtension
 from stac_fastapi.types.extension import ApiExtension
 from stac_fastapi.types.search import APIRequest
 from stac_pydantic.api import Collections, Conformance, LandingPage

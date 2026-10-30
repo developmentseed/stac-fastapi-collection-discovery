@@ -7,6 +7,15 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "annotated-doc"
+version = "0.0.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/8e/38aa427ed5402449e226975b649c5dc73ccadfefeb95e6aecb8f8ea4b6b6/annotated_doc-0.0.5.tar.gz", hash = "sha256:c7e58ce09192557605d8bbd92836d7e1d520ac9580096042c0bfd197efacf1bb", size = 10758, upload-time = "2026-07-28T13:50:58.129Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3e/30/e900b21425a860e195f32e37657aa1f7c7f2b1bfb26f03ca209b90933c06/annotated_doc-0.0.5-py3-none-any.whl", hash = "sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101", size = 5302, upload-time = "2026-07-28T13:50:57.239Z" },
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -174,7 +183,7 @@ name = "cffi"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
+    { name = "pycparser" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/56/b1ba7935a17738ae8453301356628e8147c79dbb825bcbc73dc7401f9846/cffi-2.0.0.tar.gz", hash = "sha256:44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529", size = 523588, upload-time = "2025-09-08T23:24:04.541Z" }
 wheels = [
@@ -362,16 +371,19 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.116.1"
+version = "0.162.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "annotated-doc" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "starlette" },
     { name = "typing-extensions" },
+    { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/78/d7/6c8b3bfe33eeffa208183ec037fee0cce9f7f024089ab1c5d12ef04bd27c/fastapi-0.116.1.tar.gz", hash = "sha256:ed52cbf946abfd70c5a0dccb24673f0670deeb517a88b3544d03c2a6bf283143", size = 296485, upload-time = "2025-07-11T16:22:32.057Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/eb/2cf8c80abf09b2800aef0a83b41066fbfda8ee5495b7a08b9d1af40f7046/fastapi-0.162.0.tar.gz", hash = "sha256:6a22c1e2e6e32e0633ee7e170f00009a29b8228b16feb219ee42f32fd8d88a8f", size = 527867, upload-time = "2026-10-23T18:47:33.264Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/47/d63c60f59a59467fda0f93f46335c9d18526d7071f025cb5b89d5353ea42/fastapi-0.116.1-py3-none-any.whl", hash = "sha256:c46ac7c312df840f0c9e220f7964bada936781bc4e2e6eb71f1c4d7553786565", size = 95631, upload-time = "2025-07-11T16:22:30.485Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/4f/3f2c25c9b43970b5e9a08beb5e04776247edea684ddc0930f4f02f0bb6cb/fastapi-0.162.0-py3-none-any.whl", hash = "sha256:3785963de305dd09912426cb81f2d230fce98ab3521cdfe97265c8d14983128c", size = 148912, upload-time = "2026-10-23T18:47:31.734Z" },
 ]
 
 [[package]]
@@ -1155,6 +1167,18 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-api"
+version = "1.45.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/19/14/cf3a6b6448849656e1e5f4e2101f3988dc6789724050096aba1bc5ccf592/opentelemetry_api-1.45.2.tar.gz", hash = "sha256:d7b0008e21e5fd61cbe7a7f34ca3b6905a78ab677d9bc395e299359c75cda6b4", size = 73277, upload-time = "2026-10-29T17:29:37.888Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/2d/610db864d7513158cebb8f36cc88e67e73bd6c7aa1905ef18d89e1281c81/opentelemetry_api-1.45.2-py3-none-any.whl", hash = "sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34", size = 60335, upload-time = "2026-10-29T17:29:06.955Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1795,15 +1819,15 @@ wheels = [
 
 [[package]]
 name = "stac-fastapi-api"
-version = "6.0.0"
+version = "6.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "brotli-asgi" },
     { name = "stac-fastapi-types" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/84/c8/5fdeac87d01d7da0fb64791bf796d3751cb1367fba6b1265d2659cb0f42e/stac_fastapi_api-6.0.0.tar.gz", hash = "sha256:ab6241df62847c3b012f5bb6dfca5c7cd6a3c097afd8e5881b0e213a3d6dcdb2", size = 19583, upload-time = "2025-06-19T21:19:06.563Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/a8/2f2f4a883ec42620a294a28026e3a3affeca9c695fb80f09026ced29a8b8/stac_fastapi_api-6.6.0.tar.gz", hash = "sha256:7cbbadbc85976c6b97f9c4a80895a894aeca13d9926bb8b70078b6ea69e7f619", size = 12996, upload-time = "2026-08-31T12:39:01.278Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/21/747d94c4e875d7c095cfb38b0224311dfa4ad6a26ed2b4cf5e58832718b3/stac_fastapi_api-6.0.0-py3-none-any.whl", hash = "sha256:8cb99869d886d806a098d0d0caf46a75bd39ff64a8dfdf491bded065ed4d53b6", size = 13816, upload-time = "2025-06-19T21:19:05.372Z" },
+    { url = "https://files.pythonhosted.org/packages/95/24/be8f34369c9b5f54d52107ad472d56acd9d99396c181a3379e901af7589a/stac_fastapi_api-6.6.0-py3-none-any.whl", hash = "sha256:b65d3aa2264af9e49bbc962593529701d3db90e2a801db961161557542319204", size = 15724, upload-time = "2026-08-31T12:39:02.038Z" },
 ]
 
 [[package]]
@@ -1851,9 +1875,9 @@ requires-dist = [
     { name = "gunicorn", marker = "extra == 'server'", specifier = ">=23.0.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mangum", marker = "extra == 'lambda'", specifier = ">=0.19.0" },
-    { name = "stac-fastapi-api", specifier = ">=6.0.0,<7.0" },
-    { name = "stac-fastapi-extensions", specifier = ">=6.0.0,<7.0" },
-    { name = "stac-fastapi-types", specifier = ">=6.0.0,<7.0" },
+    { name = "stac-fastapi-api", specifier = "==6.6.0" },
+    { name = "stac-fastapi-extensions", specifier = "==6.6.0" },
+    { name = "stac-fastapi-types", specifier = "==6.6.0" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.35.0" },
 ]
 provides-extras = ["server", "lambda"]
@@ -1881,20 +1905,20 @@ docs = [
 
 [[package]]
 name = "stac-fastapi-extensions"
-version = "6.0.0"
+version = "6.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "stac-fastapi-api" },
     { name = "stac-fastapi-types" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ce/56/c21264c2f5dce63f8119f5973a477e37f8aceb02b3578f9790760a902f2e/stac_fastapi_extensions-6.0.0.tar.gz", hash = "sha256:3829982d07299bb82605774d311675795fbc6972c920b6aa48ef6853cc187f7b", size = 25414, upload-time = "2025-06-19T21:19:03.564Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/ad/cd791021daa0a5d62ede920c4d60b0aa0c265e75ea3cd66ae05af6da3fb7/stac_fastapi_extensions-6.6.0.tar.gz", hash = "sha256:34c020eb1b0b431230306d2a073a06d57583f4f701569b11103b12fda3e0ea0f", size = 18859, upload-time = "2026-08-31T12:38:59.796Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/cb/e0273f783d8593a369e1ddaba7fe53d6bc7556e1381df12e083ade14eac7/stac_fastapi_extensions-6.0.0-py3-none-any.whl", hash = "sha256:c158a63c5ca7e83d95817956385c58606ab92b0c733ab3a62a42e3d65b108274", size = 33993, upload-time = "2025-06-19T21:19:02.644Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/5e/1099b07a0fe9bfaa7e23ac808cd34594c63e3728001855265dea41d7c292/stac_fastapi_extensions-6.6.0-py3-none-any.whl", hash = "sha256:df066b19e6e28181826ab5ec7481b13f8f7e14b00f9331f56e8f84a4bdbd17a1", size = 36533, upload-time = "2026-08-31T12:38:58.851Z" },
 ]
 
 [[package]]
 name = "stac-fastapi-types"
-version = "6.0.0"
+version = "6.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -1902,10 +1926,11 @@ dependencies = [
     { name = "iso8601" },
     { name = "pydantic-settings" },
     { name = "stac-pydantic" },
+    { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/04/11ac7d54e43d45cecf50b6e6f7427be741130e4c9d3e9187296b21f0a4f7/stac_fastapi_types-6.0.0.tar.gz", hash = "sha256:ce058af7813e009b4ec1f7ccd1187c5d661b9505099b7b208c814c278ecd68a7", size = 13136, upload-time = "2025-06-19T21:19:00.021Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/9f/f6a0e77820357f273f69e8b6930010a27ecf806a22a05e4f684e8bc878ce/stac_fastapi_types-6.6.0.tar.gz", hash = "sha256:607243f14dc8eddad157fd6e9e9716eb344e9c2bd0a1f02dcbf279806d029eac", size = 11118, upload-time = "2026-08-31T12:38:56.155Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/f1/33ab5be30d91cb3219e4aee1515c6837cdc66bfb9d0d5bc9d565ff376029/stac_fastapi_types-6.0.0-py3-none-any.whl", hash = "sha256:127db34c036223359c6a4a4a7d0a16d5f41d9b841a5dd109978b9dc1c0cfbf61", size = 13865, upload-time = "2025-06-19T21:18:58.888Z" },
+    { url = "https://files.pythonhosted.org/packages/80/d5/8c0457b024a6af84ce030628ee995578732fe1847ddefe20bcbf476db707/stac_fastapi_types-6.6.0-py3-none-any.whl", hash = "sha256:fdfea762a2bc5931a9bd0cf2bd0998c464ea37e657a7ffd67595f064a07ce014", size = 14080, upload-time = "2026-08-31T12:38:57.05Z" },
 ]
 
 [[package]]
@@ -1938,15 +1963,15 @@ wheels = [
 
 [[package]]
 name = "starlette"
-version = "0.47.1"
+version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0a/69/662169fdb92fb96ec3eaee218cf540a629d629c86d7993d9651226a6789b/starlette-0.47.1.tar.gz", hash = "sha256:aef012dd2b6be325ffa16698f9dc533614fb1cebd593a906b90dc1025529a79b", size = 2583072, upload-time = "2025-06-21T04:03:17.337Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/bb/3d8757f21e9a53d9035c9eb039a777047139a16bfdbedfc7a58241c3d914/starlette-1.10.0.tar.gz", hash = "sha256:b8399098d4c1e3522734f7235dc79b1fc967f96cf139c81e0fa30479e0685f9b", size = 2734356, upload-time = "2026-10-24T15:04:12.342Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/95/38ef0cd7fa11eaba6a99b3c4f5ac948d8bc6ff199aabd327a29cc000840c/starlette-0.47.1-py3-none-any.whl", hash = "sha256:5e11c9f5c7c3f24959edbf2dffdc01bba860228acf657129467d8a7468591527", size = 72747, upload-time = "2025-06-21T04:03:15.705Z" },
+    { url = "https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl", hash = "sha256:478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4", size = 80571, upload-time = "2026-10-24T15:04:10.371Z" },
 ]
 
 [[package]]
@@ -2000,14 +2025,14 @@ wheels = [
 
 [[package]]
 name = "typing-inspection"
-version = "0.4.1"
+version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/b1/0c11f5058406b3af7609f121aaa6b609744687f1d158b3c3a5bf4cc94238/typing_inspection-0.4.1.tar.gz", hash = "sha256:6ae134cc0203c33377d43188d4064e9b357dba58cff3185f22924610e70a9d28", size = 75726, upload-time = "2025-05-21T18:55:23.885Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/55/e3/70399cb7dd41c10ac53367ae42139cf4b1ca5f36bb3dc6c9d33acdb43655/typing_inspection-0.4.2.tar.gz", hash = "sha256:ba561c48a67c5958007083d386c3295464928b01faa735ab8547c5692e87f464", size = 75949, upload-time = "2025-10-01T02:14:41.687Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/17/69/cd203477f944c353c31bade965f880aa1061fd6bf05ded0726ca845b6ff7/typing_inspection-0.4.1-py3-none-any.whl", hash = "sha256:389055682238f53b04f7badcb49b989835495a96700ced5dab2d8feae4b26f51", size = 14552, upload-time = "2025-05-21T18:55:22.152Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl", hash = "sha256:4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7", size = 14611, upload-time = "2025-10-01T02:14:40.154Z" },
 ]
 
 [[package]]
