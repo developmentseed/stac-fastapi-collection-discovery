@@ -3,25 +3,38 @@ updates:
   - package-ecosystem: uv
     cooldown:
       default-days: 7
-    directory: "/"
+    directory: /
     schedule:
       interval: monthly
     groups:
-      all:
+      python-dependencies:
         patterns:
           - "*"
     commit-message:
       prefix: "chore(deps):"
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: github-actions
+    directory: /
     cooldown:
       default-days: 7
     schedule:
       interval: monthly
     groups:
-      all:
+      github-actions:
         patterns:
           - "*"
     commit-message:
       prefix: "ci(deps):"
+
+  - package-ecosystem: pre-commit
+    directory: /
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: monthly
+    groups:
+      pre-commit:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps):"
